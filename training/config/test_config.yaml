@@ -1,0 +1,141 @@
+mode: test
+lmdb: False
+
+rgb_dir: ''
+lmdb_dir:  './datasets/lmdb'
+dataset_json_folder: './datasets/DF40/json_file'
+
+backbone_config:
+  mode: original
+  num_classes: 4
+  inc: 3
+  dropout: false
+
+# label settings
+# Real:0
+# Face-swapping(FS):1
+# Face-reenactment(FR):2
+# Entire-Face-Synthesis(EFS):3
+# Face-Editing(FE):4
+
+label_dict:
+    #Real:
+    fsgan_Real: 0
+    faceswap_Real: 0
+    simswap_Real: 0
+    roop_Real: 0
+    inswap_Real: 0
+    blendface_Real: 0
+    uniface_Real: 0   
+    mobileswap_Real: 0
+    e4s_Real: 0
+    deepfacelab_Real: 0
+
+    fomm_Real: 0
+    facevid2vid_Real: 0
+    wav2lip_Real: 0
+    MRAA_Real: 0
+    one_shot_free_Real: 0
+    pirender_Real: 0
+    tpsm_Real: 0
+    lia_Real: 0
+    danet_Real: 0
+    sadtalker_Real: 0
+    mcnet_Real: 0
+    hyperreenact_Real: 0
+    heygen_Real: 0
+
+    VQGAN_Real: 0
+    StyleGAN2_Real: 0
+    StyleGAN3_Real: 0
+    StyleGANXL_Real: 0
+    sd2.1_Real: 0
+    ddim_Real: 0
+    rddm_Real: 0
+    pixart_Real: 0
+    DiT_Real: 0
+    SiT_Real: 0
+    MidJourney_Real: 0
+    whichisreal_Real: 0
+
+    CollabDiff_Real: 0
+    e4e_Real: 0
+    stargan_Real: 0
+    starganv2_Real: 0
+    styleclip_Real: 0
+
+    # Face-Editing: 
+    # List_ff  :[e4e_ff]
+    # List_cdf :[e4e_cdf] no training set
+    # novel:[CollabDiff, e4e, stargan, starganv2, styleclip] no training set
+
+    CollabDiff_Fake: 4
+    e4e_Fake: 4
+    stargan_Fake: 4
+    starganv2_Fake: 4
+    styleclip_Fake: 4
+
+    # Entire-Face-Synthesis: 
+    # List_ff  :[VQGAN_ff, StyleGAN2_ff, StyleGAN3_ff, StyleGANXL_ff, sd2.1_ff,
+                #  ddim_ff, rddm_ff, pixart_ff, DiT_ff, SiT_ff]
+    # List_cdf :[VQGAN_cdf, StyleGAN2_cdf, StyleGAN3_cdf, StyleGANXL_cdf, sd2.1_cdf,
+                #  ddim_cdf, rddm_cdf, pixart_cdf, DiT_cdf, SiT_cdf] no training set
+    # novel:[MidJourney, whichisreal] no training set
+
+    VQGAN_Fake: 3
+    StyleGAN2_Fake: 3
+    StyleGAN3_Fake: 3
+    StyleGANXL_Fake: 3
+    sd2.1_Fake: 3
+    ddim_Fake: 3
+    rddm_Fake: 3
+    pixart_Fake: 3
+    DiT_Fake: 3
+    SiT_Fake: 3
+    MidJourney_Fake: 3
+    whichisreal_Fake: 3
+
+
+    # Face-reenactment: 
+    # List_ff  :[fomm_ff, facevid2vid_ff, wav2lip_ff, MRAA_ff, one_shot_free_ff,
+                #  pirender_ff, tpsm_ff, lia_ff, danet_ff, sadtalker_ff,
+                #  mcnet_ff, hyperreenact_ff]
+    # List_cdf :[fomm_cdf, facevid2vid_cdf, wav2lip_cdf, MRAA_cdf, one_shot_free_cdf,
+                #  pirender_cdf, tpsm_cdf, lia_cdf, danet_cdf, sadtalker_cdf,
+                #  mcnet_cdf, hyperreenact_cdf] no training set
+    # novel:[heygen] no training set
+
+
+    fomm_Fake: 2
+    facevid2vid_Fake: 2
+    wav2lip_Fake: 2
+    MRAA_Fake: 2
+    one_shot_free_Fake: 2
+    pirender_Fake: 2
+    tpsm_Fake: 2
+    lia_Fake: 2
+    danet_Fake: 2
+    sadtalker_Fake: 2
+    mcnet_Fake: 2
+    hyperreenact_Fake: 2
+    heygen_Fake: 2
+
+
+    # Face-swapping: 
+    # List_ff  :[fsgan_ff, faceswap_ff, simswap_ff, inswap_ff, blendface_ff, uniface_ff, mobileswap_ff, e4s_ff,
+                #  facedancer_ff]
+    # List_cdf :[fsgan_cdf, faceswap_cdf, simswap_cdf, inswap_cdf, blendface_cdf, uniface_cdf, mobileswap_cdf, e4s_cdf,
+                #  facedancer_cdf] no training set
+    # novel:[simswap, uniface_ori, uniface, deepfacelab] no training set
+
+
+    fsgan_Fake: 1
+    faceswap_Fake: 1
+    simswap_Fake: 1
+    roop_Fake: 1
+    inswap_Fake: 1
+    blendface_Fake: 1
+    uniface_Fake: 1
+    mobileswap_Fake: 1
+    e4s_Fake: 1
+    deepfacelab_Fake: 1
