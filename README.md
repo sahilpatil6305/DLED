@@ -3,7 +3,7 @@
 Official implementation of *Open Set Face Forgery Detection via Dual-Level
 Evidence Collection* (FG 2026).
 
-This work proposes the DualLevel Evidential face forgery Detection (DLED) approach, a CLIP-based detector with two parallel branches (spatial / frequency) and fuses them via subjective-logic evidence combination. 
+This work proposes the Dual Level Evidential face forgery Detection (DLED) approach, a CLIP-based detector with two parallel branches (spatial / frequency) and fuses them via subjective-logic evidence combination. 
 
 
 ## Repository layout
