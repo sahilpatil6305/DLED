@@ -1,0 +1,9 @@
+# Added for the reproduction branch (not part of the official release)
+.venv/
+.venv310/
+__pycache__/
+*.pyc
+datasets
+logs/
+saved_models/
+training/pretrained/clip/
