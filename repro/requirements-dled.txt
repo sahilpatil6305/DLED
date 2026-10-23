@@ -1,0 +1,33 @@
+# Derived from the actual imports of zhyczy/DLED @ b8c41ea (the README's
+# requirements.txt does not exist in the repo). torch/torchvision/numpy are
+# deliberately NOT listed: keep the working .venv310 install
+# (torch 2.2.2+cu121, torchvision 0.17.2+cu121, numpy 1.26.4).
+#
+# Install with:  pip install -r requirements-dled.txt "numpy==1.26.4"
+# (repeating the numpy pin stops anything here from upgrading it to 2.x)
+
+# albumentations: dataset uses ImageCompression(quality_lower=...),
+# albumentations.augmentations.crops.functional.crop and
+# DualTransform(always_apply, p) -- removed/changed in 2.x. 1.3.1 has all.
+albumentations==1.3.1
+opencv-python-headless<4.11      # cv2; <4.11 keeps numpy 1.x compatibility
+scikit-learn<1.6                 # roc_auc_score, roc_curve, average_precision_score
+scipy<1.14
+PyYAML
+tqdm
+lmdb                             # imported unconditionally by the dataset module
+tensorboard                      # torch.utils.tensorboard.SummaryWriter
+Pillow
+
+# CLIP tokenizer
+ftfy
+regex
+
+# Dassl (imported as Dassl.dassl.*)
+yacs
+tabulate
+gdown>=5.1                       # also used by repro/df40_list.py
+six
+
+# preprocessing scripts only
+pandas<2.3

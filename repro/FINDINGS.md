@@ -1,0 +1,60 @@
+# Official DLED — verified findings and VM runbook
+
+Source inspected: `zhyczy/DLED` @ `b8c41ea` (same commit as your VM clone), read file by file on 23 Oct 2026.
+Nothing here has been run on a GPU yet; items marked **[run on VM]** are what the scripts in this kit check.
+
+---
+
+## 1. Findings that change the plan
+
+### F1. The official release cannot run as published — `loralib` is missing
+`training/detectors/dled.py:30` imports `apply_lora, apply_double_lora, INDEX_POSITIONS_TEXT, INDEX_POSITIONS_VISION` from `loralib.utils`. There is no `loralib/` in the repo, and PyPI `loralib` (Microsoft) has none of those names. The only public match is CLIP-LoRA (MaxZanella/CLIP-LoRA), but its `apply_lora(args, clip_model)` has a different signature from DLED's call `apply_lora(cfg, encoder, indices, dtype)`.
+
+**Consequence:** any DLED run requires a reconstructed module. `loralib_shim/` provides one (CLIP-LoRA's attention layer, unmodified, behind DLED's signature). This is a necessary, documented deviation — state it in the thesis. Assumptions it makes are listed at the top of `loralib_shim/loralib/utils.py`; the one most likely to affect numbers is LoRA scaling (CLIP-LoRA uses α/√r = 0.25; Microsoft loralib uses α/r = 0.0625).
+
+**Reframes the history:** the Kaggle "custom LoRA" smoke test reported 48 replacements and 3,932,160 LoRA params. That is exactly what the *official* config (`ENABLE_LORA [q,k,v,o]`, `RANK 16`, `POSITION all`, 4 ViT-B/16 encoders) produces. That branch was very likely a reconstruction of this missing module, not an unofficial extension. Compare its LoRA code with this shim before discarding it.
+
+### F2. `requirements.txt` does not exist
+README says `pip install -r requirements.txt`; the file is absent. `requirements-dled.txt` here is derived from the actual imports. Critical pin: **albumentations 1.3.1** (the loader uses `ImageCompression(quality_lower=…)` and `crops.functional.crop`, both gone in 2.x).
+
+### F3. `DF40_FF_train_NOEFS.json` has no generator in the repo
+`train.sh NOEFS` needs `DF40_FF_train_NOEFS`; no script produces that name (`organize_json.py` only produces `DF40_mixed_train_NOEFS`). The test file `DF40_FF_test_NOFE_all` *is* produced by `merge_seen_unseen.py`. `noefs_data.py build` reproduces the test file exactly and reconstructs the train file from the NOEFS method list — a second documented inference.
+
+### F4. What NOEFS actually needs (storage scope)
+| Split | Methods (FF++-derived `_ff` versions only) | Split key |
+|---|---|---|
+| Train | FS: fsgan, faceswap, simswap, inswap, blendface · FR: fomm, facevid2vid, wav2lip, MRAA, one_shot_free (+ their Real frames) | `train` |
+| Test | 35 sources: 9 FS + deepfacelab, 12 FR + heygen, 10 EFS + MidJourney + whichisreal | `test` |
+
+Not needed for NOEFS: any `_cdf` data, any Face-Editing data (e4e, CollabDiff, StarGAN, StarGANv2, StyleCLIP), and the `val` split. Also the loader reads **only the first 32 sorted frames per video** (the `step` computation always yields 1), so frames beyond 32 per video are never touched. Both facts can shrink the download substantially — measure with the audit before downloading everything.
+
+Labels in the test set: 0 real, 1 FS, 2 FR, **3 EFS = the unknown class** for the 3-class model. Unseen FS/FR *methods* keep labels 1/2 (known category, unseen generator).
+
+### F5. Silent data corruption risk
+If an image is missing or unreadable, `__getitem__` prints a line and returns sample 0 instead. A half-downloaded dataset trains without error and produces quietly wrong numbers. **Do not train until `noefs_data.py audit` reports 0 missing.**
+
+### F6. Protocol properties to report honestly
+- **No validation split.** "Best metric" and checkpoint selection are computed on the test set (`test_fre`). With the defaults (`test_fre=50`, 50 epochs) testing happens once, at the end — report that setting; don't lower `test_fre` and then pick the best epoch.
+- **Test set is subsampled** by `balance_dataset` (random, seeded via `manualSeed=1024`), capped at 13,504 per class.
+- **Open-set rule:** per-class uncertainty thresholds are set from the training data (top 5% vacuity, `threshold_ratio=0.05`); a test sample whose vacuity exceeds its predicted class's threshold is relabelled as class `num_classes` (unknown).
+- **Checkpoint saved only at the end** (`--save_model`) — a crash at epoch 49 loses the run. Use `tmux`/`nohup`.
+- `train_batchSize 32`, `PREC fp16`, `workers 8` (VM has ~15 GiB RAM; reduce workers if it OOMs — record any change).
+
+### F7. Directly relevant to the adversarial extension
+The frequency inputs (FFT log-magnitude spectrum, high-pass) are computed **in NumPy/OpenCV inside the data loader**, from the *un-augmented* image. A PGD attack on the RGB tensor therefore **does not propagate through the frequency branch** unless you re-implement `load_rgb`'s FFT + median-blur high-pass in differentiable PyTorch. Two consequences:
+1. A naive attack on `data_dict['image']` only perturbs the spatial branch — it is a partial threat model, and it would make DLED look artificially robust.
+2. The extension must define the threat model in pixel space and push the perturbation through *both* branches (and through the subjective-logic fusion and vacuity rule). This is a concrete, defensible design point for the thesis.
+
+Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPUT.PIXEL_MEAN` CLIP values are **not** used by this loader) — your ε must be stated in [0,1] pixel units before normalisation.
+
+### F8. Minor
+- NOFS protocol looks broken: its class names map EFS to index 1, but `label_dict` gives EFS label 3. Not your protocol; mention only if you run it.
+- CLIP-LoRA code is AGPL-3.0 — fine for research use; credit it.
+- I could not read the DLED GitHub issue tracker from my environment. Check https://github.com/zhyczy/DLED/issues for a released `loralib`, requirements, or JSONs before relying on the reconstructions; if nothing is there, consider emailing the authors (Zhongyi Cai et al.) about F1 and F3.
+
+---
+
+
+---
+
+Setup and run steps: see `repro/README.md`.
