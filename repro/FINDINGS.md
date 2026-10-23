@@ -55,6 +55,16 @@ Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPU
 ---
 
 
+### F9. Two more files the release omits (found while running)
+- `clip/bpe_simple_vocab_16e6.txt.gz`, the CLIP tokenizer vocabulary. DLED's `clip/simple_tokenizer.py` is byte-identical to OpenAI CLIP's and loads this file at import, so nothing runs without it. `repro/fetch_assets.sh` copies OpenAI's original (sha256 `924691ac…804a`). Packaging gap, not a method change.
+- The per-method DF40 JSON files use the path prefix `deepfakes_detection_datasets`; `env.sh` now sets `DF40_OLD_ROOT` accordingly.
+
+### F10. Data facts measured on the real files (24 Oct 2026)
+- NOEFS train: 470,526 candidate frames (real 229,930 · FS 126,518 · FR 114,078); official balancing uses 54,016 per epoch.
+- NOEFS test: 302,502 candidate frames over 35 sources; balancing uses 81,024 (real 40,512; FS, FR, EFS 13,504 each).
+- Drive sizes: training zips for the 10 NOEFS methods 20.4 GB; the 35 test zips 98.1 GB (ff + cdf; cdf is not used).
+- In DF40's training Drive folder, `StyleGAN2.zip` and `StyleGAN3.zip` have identical byte sizes (1,445,525,543): possibly a duplicate upload. Not used by NOEFS training; check the test versions before relying on them.
+
 ---
 
 Setup and run steps: see `repro/README.md`.

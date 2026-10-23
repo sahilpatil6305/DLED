@@ -1,11 +1,11 @@
 # DLED official reproduction — setup and run
 
-Branch `official-repro` = the official DLED history (`zhyczy/DLED`, commit
-`b8c41ea`) plus this `repro/` folder, a root `.gitignore`, and nothing else.
-**No official file is modified.** Check it any time:
+Branch `main` = the official DLED history (`zhyczy/DLED`, commit `b8c41ea`,
+tagged `baseline-b8c41ea`) plus this `repro/` folder, a root `.gitignore`, and
+nothing else. **No official file is modified.** Check it any time:
 
 ```bash
-git diff --stat b8c41ea -- . ':!repro' ':!.gitignore'   # must print nothing
+git diff --stat baseline-b8c41ea -- . ':!repro' ':!.gitignore'   # must print nothing
 ```
 
 What is here and why: `FINDINGS.md` (paper-vs-code findings, including the
@@ -17,95 +17,100 @@ missing `loralib` and the missing train-JSON generator).
 | `requirements-dled.txt` | Dependencies derived from the actual imports (README's `requirements.txt` does not exist) |
 | `env.sh` | Sets venv, PYTHONPATH, CLIP cache, data root, path rewriting; symlinks `./datasets` |
 | `smoke_model.py` | Builds DLED and runs one GPU forward/backward on random tensors. No data needed |
+| `run.sh` | Runs any command with a full timestamped record in `~/DLED/runs/` |
+| `fetch_assets.sh` | Fetches and checksums the CLIP tokenizer vocab the release omits |
+| `get_test.sh` | Downloads, verifies and extracts the 35 NOEFS test zips via rclone |
 | `df40_list.py` / `df40_get.sh` | List DF40 Drive files without downloading; download + extract one file |
 | `noefs_data.py` | Build the NOEFS train/test JSONs; audit that every image the loader will read exists |
 
 ---
 
-## Step 1 — Mac: put this branch on your GitHub
+## Step 1 — VM: clone and verify
 
 ```bash
-cd ~/Downloads                                    # where DLED-repro.bundle is
-git clone -b official-repro DLED-repro.bundle DLED-repro
+mkdir -p ~/DLED && cd ~/DLED
+/usr/bin/python3.10 -m venv ~/DLED/venv          # own venv; no sudo, nothing system-wide
+source ~/DLED/venv/bin/activate
+python -m pip install torch==2.2.2+cu121 torchvision==0.17.2+cu121 --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple
+python -m pip install "numpy==1.26.4" --index-url https://pypi.org/simple
+git clone https://github.com/sahilpatil6305/DLED.git DLED-repro    # private: username + read-only token
 cd DLED-repro
-git log --oneline | tail -3                       # must end with b8c41ea, 4967dd1, 4ffd8df
-git remote set-url origin https://github.com/sahilpatil6305/DLED.git
-git remote add upstream https://github.com/zhyczy/DLED.git
-git push -u origin official-repro                 # new branch; your old main is untouched
+git diff --stat baseline-b8c41ea -- . ':!repro' ':!.gitignore'   # must print nothing
 ```
 
-## Step 2 — VM: clone and verify
+## Step 2 — every new SSH session
 
 ```bash
-cd ~/DLED
-git clone -b official-repro https://github.com/sahilpatil6305/DLED.git DLED-repro
-cd DLED-repro
-git diff --stat b8c41ea -- . ':!repro' ':!.gitignore'   # must print nothing
-nvidia-smi --query-gpu=name,memory.total --format=csv && df -h ~
+cd ~/DLED/DLED-repro && source repro/env.sh
 ```
 
 ## Step 3 — VM: environment and smoke test
 
 ```bash
 cd ~/DLED/DLED-repro
-source repro/env.sh                       # reuses ~/DLED/official/.venv310
+source repro/env.sh          # activates ~/DLED/venv; first time also fetches the CLIP vocab
 pip install -r repro/requirements-dled.txt "numpy==1.26.4" --index-url https://pypi.org/simple
-python -c "import torch,numpy,albumentations;print(torch.__version__,numpy.__version__,albumentations.__version__)"
-python repro/smoke_model.py 2>&1 | tee ~/DLED/runs/smoke_model.log
+repro/run.sh smoke python repro/smoke_model.py
 ```
 
 Expect `48` LoRA modules, `3,932,160` LoRA params, a finite loss and
-`SMOKE TEST PASSED`. Send the log before going further.
+`SMOKE TEST PASSED`.
 
-## Step 4 — VM: data (JSONs first, images second)
+**Every run goes through `repro/run.sh <name> <command…>`.** It creates
+`~/DLED/runs/<date-time>_<name>/` with the command, timings, exit code, git
+commit and diff, environment, package versions, config copies, dataset-JSON
+fingerprints, console output, GPU usage every 30 s, and DLED's own logs; and it
+appends one line to `~/DLED/runs/RUNS_INDEX.txt`.
 
-```bash
-source repro/env.sh
-python repro/df40_list.py json > ~/DLED/runs/df40_json_files.tsv && cat ~/DLED/runs/df40_json_files.tsv
+## Step 4 — VM: data
+
+Anonymous Google Drive downloads (gdown) hit Drive's "too many users" limit for
+DF40's large zips, so the images are fetched with rclone signed in to a Google
+account with **read-only** Drive access. Revoke it afterwards at
+myaccount.google.com/permissions.
+
+1. JSON indexes (small; gdown is fine): `python repro/df40_list.py json`, download
+   the 35 per-method JSONs listed in `noefs_data.TEST_NOFE_ALL` into
+   `$DLED_DATA/df40_json`, then
+   `python repro/noefs_data.py build --src $DLED_DATA/df40_json --dst $DLED_DATA/DF40/json_file`.
+2. rclone: download the Linux binary from downloads.rclone.org into `~/DLED/tools`,
+   `rclone --config ~/DLED/tools/rclone.conf config create gdrive drive scope=drive.readonly config_is_local=false`,
+   get a token on a machine with a browser (`rclone authorize "drive"`), then
+   `rclone --config ~/DLED/tools/rclone.conf config reconnect gdrive:` and paste it.
+3. Training fakes (10 zips, 20.4 GB) from folder `1U8meBbqVvmUkc5GD0jxct6xe6Gwk9wKD`
+   with `rclone copy … --include "/{fsgan,faceswap,simswap,inswap,blendface,fomm,facevid2vid,wav2lip,MRAA,one_shot_free}.zip"`,
+   verify with `rclone check … --one-way`, unzip into `$DLED_DATA/DF40_train/`.
+4. Real frames: `rclone backend copyid gdrive: 1dHJdS0NZ6wpewbGA5B0PdIBS9gz28pdb $DLED_DATA/_incoming/real/`,
+   unzip into `$DLED_DATA` (the zip starts with `FaceForensics++/…`).
+5. Test fakes (35 zips, 98 GB, Celeb-DF parts skipped):
+   `nohup repro/get_test.sh > ~/DLED/runs/get_test.log 2>&1 &`
+6. Audit until both splits report 0 missing — the loader silently replaces
+   missing images with sample 0:
+   `repro/run.sh audit python repro/noefs_data.py audit --json $DLED_DATA/DF40/json_file --out $DLED_DATA/audit`
+
+Resulting layout (`$DLED_DATA` = `~/DLED/data`):
+
 ```
-
-Download the per-method JSON files (or the whole JSON folder) into
-`$DLED_DATA/df40_json`, then:
-
-```bash
-python repro/noefs_data.py build --src $DLED_DATA/df40_json --dst $DLED_DATA/DF40/json_file
-python - <<'EOF'
-import json,os
-d=json.load(open(os.path.expandvars('$DLED_DATA/DF40/json_file/DF40_FF_test_NOFE_all.json')))
-k=next(iter(d)); s=next(iter(d[k].values())); v=next(iter(s['test'].values()))
-print(v['frames'][0])
-EOF
+DF40_train/<method>/frames/<video>/<frame>.png          training fakes
+DF40/<method>/ff/frames/<video>/<frame>.png             test fakes (FS, FR)
+DF40/<method>/ff/<id>/<image>.png                       test fakes (EFS)
+DF40/{deepfacelab,heygen,MidJourney,whichisreal}/{fake,real}/...
+FaceForensics++/original_sequences/youtube/c23/frames/  real frames
+DF40/json_file/DF40_FF_{train_NOEFS,test_NOFE_all}.json
 ```
-
-The printed path shows the prefix to rewrite. Set it and audit:
-
-```bash
-export DF40_OLD_ROOT=<prefix up to, not including, /DF40/...>
-source repro/env.sh
-python repro/noefs_data.py audit --json $DLED_DATA/DF40/json_file --out $DLED_DATA/audit
-```
-
-The audit lists missing frames per method. Download only those methods
-(`df40_list.py train|test`, then `df40_get.sh <id> <dest>`), move each into
-`$DLED_DATA/DF40/<method>/`, and re-run the audit. **Do not train until it
-reports 0 missing** — the loader silently replaces missing images with sample 0.
 
 ## Step 5 — VM: pilot run (setup check, not a result)
 
 ```bash
-DLED_NUM_EPOCHS=2 DLED_TEST_FRE=1 DLED_MAX_SAMPLES_PER_CLS=512 \
-  DLED_LOG_DIR=~/DLED/runs/pilot ./train.sh NOEFS
-tail -50 ~/DLED/runs/pilot/DLED_NOEFS.log
+repro/run.sh pilot env DLED_NUM_EPOCHS=2 DLED_TEST_FRE=1 DLED_MAX_SAMPLES_PER_CLS=512 ./train.sh NOEFS
 ```
 
-## Step 6 — VM: full baseline (official settings)
+## Step 6 — VM: full baseline (official settings, survives logout)
 
 ```bash
-tmux new -s dled
-source repro/env.sh
-DLED_LOG_DIR=~/DLED/runs/NOEFS_baseline ./train.sh NOEFS --save_model --save_path ~/DLED/runs/NOEFS_baseline
-# detach: Ctrl-b d     reattach: tmux attach -t dled
+nohup repro/run.sh baseline_noefs ./train.sh NOEFS --save_model --save_path ~/DLED/runs/ckpt_noefs > /dev/null 2>&1 &
+tail -f ~/DLED/runs/RUNS_INDEX.txt     # one line appears when it finishes
 ```
 
 Paper target (FG 2026, Table I, EFS unseen): Acc 75.52, DR 34.71 — single seed,
-final epoch. Record commit, `pip freeze`, env vars, JSON sha256s and the log.
+final epoch.
