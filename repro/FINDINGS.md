@@ -65,6 +65,12 @@ Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPU
 - Drive sizes: training zips for the 10 NOEFS methods 20.4 GB; the 35 test zips 98.1 GB (ff + cdf; cdf is not used).
 - In DF40's training Drive folder, `StyleGAN2.zip` and `StyleGAN3.zip` have identical byte sizes (1,445,525,543): possibly a duplicate upload. Not used by NOEFS training; check the test versions before relying on them.
 
+### F11. Found by the pilot run (24 Oct 2026)
+- **NumPy must be ≤ 1.23.** `trainer.py` builds `np.array()` from per-batch lists with a shorter last batch; NumPy ≥ 1.24 raises *inhomogeneous shape*. The NOEFS test set (81,024 frames, batch 100) always ends with a 24-frame batch, so newer NumPy crashes after the full 50 epochs. Pinned `numpy==1.23.5` (environment change, no code change).
+- **MidJourney needs the official `change_json_path.py` fix-up.** Some MidJourney files are GIFs, which OpenCV cannot read (the loader then silently substitutes sample 0), and 5 images are broken. Reproduced exactly: GIF→PNG on disk, `.gif`→`.png` in paths, the 5 listed images dropped. The audit now also flags unreadable extensions.
+- **`mobileswap.zip` (test) contains a nested `ff/frames.zip`** whose images sit under the authors' internal path `…/deepfakes_detection_datasets/DF40/mobileswap/ff/frames/`; moved into place (27,279 images, exactly the missing count).
+- **StyleGAN2 and StyleGAN3 test images (FF domain) are identical** (same 3,711 file names; first 200 byte-identical — full comparison pending). Kept as released for the baseline; report per-generator results with this caveat.
+
 ---
 
 Setup and run steps: see `repro/README.md`.

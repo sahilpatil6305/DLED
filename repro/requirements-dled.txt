@@ -1,10 +1,17 @@
 # Derived from the actual imports of zhyczy/DLED @ b8c41ea (the README's
-# requirements.txt does not exist in the repo). torch/torchvision/numpy are
-# deliberately NOT listed: keep the working .venv310 install
-# (torch 2.2.2+cu121, torchvision 0.17.2+cu121, numpy 1.26.4).
+# requirements.txt does not exist in the repo). torch/torchvision are
+# deliberately NOT listed: install torch 2.2.2+cu121 / torchvision
+# 0.17.2+cu121 first (README step 1).
 #
-# Install with:  pip install -r requirements-dled.txt "numpy==1.26.4"
-# (repeating the numpy pin stops anything here from upgrading it to 2.x)
+# numpy MUST be < 1.24. training/trainer/trainer.py (test_one_dataset) calls
+# np.array() on per-batch lists whose last batch is shorter; numpy >= 1.24
+# raises "inhomogeneous shape" there, numpy <= 1.23 only warns. The NOEFS test
+# set (81,024 frames, batch 100) always has a short last batch, so newer numpy
+# crashes at the end of evaluation. The authors therefore ran numpy <= 1.23.
+#
+# Install with:  pip install -r requirements-dled.txt
+numpy==1.23.5
+scikit-image<0.22                # newer releases need numpy>=1.23/1.24; albumentations imports it
 
 # albumentations: dataset uses ImageCompression(quality_lower=...),
 # albumentations.augmentations.crops.functional.crop and

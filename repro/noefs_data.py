@@ -19,10 +19,16 @@ Why both are needed
     error. `audit` is the guard against that. Do not train until it reports 0
     missing.
 
-Usage (from the official repo root, inside .venv310):
+MidJourney: the official preprocessing/change_json_path.py converts its GIFs to
+PNG, rewrites .gif->.png in the paths and drops 5 broken images. `build` applies
+the path rule and the drops; run `gif2png` once to convert the files on disk.
+The other rules in that script do not affect NOEFS or are equivalent to our
+folder names (whichisreal, rddm).
+
+Usage (from the repo root, after `source repro/env.sh`):
   python repro/noefs_data.py build --src $DLED_DATA/df40_json \
          --dst $DLED_DATA/DF40/json_file
-  export DF40_OLD_ROOT=<prefix inside the JSONs>  DF40_DATA_ROOT=<real root>
+  python repro/noefs_data.py gif2png
   python repro/noefs_data.py audit --json $DLED_DATA/DF40/json_file \
          --out $DLED_DATA/audit
 """
@@ -48,6 +54,49 @@ TEST_NOFE_ALL = [
     'uniface_ff', 'mobileswap_ff', 'e4s_ff', 'facedancer_ff', 'deepfacelab']
 
 
+# --- MidJourney fix-up copied from the official preprocessing/change_json_path.py:
+# paths .gif -> .png (the GIFs are converted on disk, see `gif2png`) and these
+# five images are dropped from the index.
+MJ_DROP = {
+    '13592447708_Single_person_East_Asian_male_looking_at_the_camera_75e759ff-c23a-4679-bd68-76170370d3d1.png',
+    '13592447708_Single_person_white_female_looking_at_the_camera_fa_72edc876-2d1f-41b6-b7cb-caaa907da5ab.png',
+    '13592447708_Clean_East_Asian_female_face_face_only_shown_face_c_ba354e74-3cb4-4f63-9ad6-f40a641b558a.png',
+    '13592447708_Clean_East_Asian_male_face_only_face_shown_close-up_3ad609fd-9d87-4242-9d5b-d2776a3c2c7e.png',
+    '13592447708_Single_person_white_female_looking_at_the_camera_fa_d28fc222-bd3f-4ee6-ad9f-7af441607d82.png',
+}
+
+
+def fix_midjourney(data):
+    """Apply change_json_path.py's MidJourney rule in place; return #dropped."""
+    dropped = 0
+    for spec in data['MidJourney'].values():
+        for split in spec.values():
+            for video in split.values():
+                kept = []
+                for p in video['frames']:
+                    q = p.replace('.gif', '.png')
+                    if os.path.basename(q) in MJ_DROP and '/MidJourney/fake/' in q:
+                        dropped += 1
+                        continue
+                    kept.append(q)
+                video['frames'] = kept
+    return dropped
+
+
+def gif2png(data_root):
+    """Official step (end of change_json_path.py): save each MidJourney .gif as .png (PIL)."""
+    from PIL import Image
+    d = os.path.join(data_root, 'DF40', 'MidJourney', 'fake')
+    n = 0
+    for fn in sorted(os.listdir(d)):
+        if fn.endswith('.gif'):
+            out = os.path.join(d, fn[:-4] + '.png')
+            if not os.path.exists(out):
+                Image.open(os.path.join(d, fn)).save(out, 'PNG')
+                n += 1
+    print(f'converted {n} GIFs to PNG in {d}')
+
+
 def build(src, dst):
     os.makedirs(dst, exist_ok=True)
     plan = {
@@ -65,6 +114,9 @@ def build(src, dst):
                 data = json.load(f)
             if fn not in data:
                 sys.exit(f'{p}: top-level key {fn!r} not found (keys: {list(data)[:5]})')
+            if fn == 'MidJourney':
+                print(f'  MidJourney: .gif->.png, dropped {fix_midjourney(data)} listed frames '
+                      '(official change_json_path.py rule)')
             for set_key, spec in data[fn].items():        # e.g. fsgan_Real / fsgan_Fake
                 if set_key in merged:
                     print(f'  WARNING {out_name}: {set_key} appears twice; last wins (official behaviour)')
@@ -75,6 +127,9 @@ def build(src, dst):
             json.dump({out_name: merged}, f, indent=1)
         n_vid = sum(len(v[split]) for v in merged.values())
         print(f'{out_name}: {len(merged)} label keys, {n_vid} videos/items -> {dst}')
+
+
+READABLE = {'.png', '.jpg', '.jpeg', '.bmp'}
 
 
 def audit(json_dir, out_dir, max_per_cls=13504, seed=1024):
@@ -108,7 +163,9 @@ def audit(json_dir, out_dir, max_per_cls=13504, seed=1024):
         for p, v in zip(paths, vids):
             method = v.split('_')[0] if not v.startswith('one_shot') else 'one_shot_free'
             per_method[method][0] += 1
-            if not os.path.isfile(p):
+            # OpenCV (the official loader's reader) cannot decode GIF; the loader
+            # would silently substitute sample 0, so count those as missing too.
+            if not os.path.isfile(p) or os.path.splitext(p)[1].lower() not in READABLE:
                 per_method[method][1] += 1
                 miss_by_method[method].append(p)
         n_miss = sum(m for _, m in per_method.values())
@@ -128,8 +185,8 @@ def audit(json_dir, out_dir, max_per_cls=13504, seed=1024):
         if paths:
             print('  example path:', paths[0])
 
-    print('\nRESULT:', 'all candidate images present' if total_missing == 0
-          else f'{total_missing} images missing -- DO NOT TRAIN (see {out_dir})')
+    print('\nRESULT:', 'all candidate images present and readable' if total_missing == 0
+          else f'{total_missing} images missing or unreadable -- DO NOT TRAIN (see {out_dir})')
     print('Label meaning in NOFE_all test: 0 real, 1 FS, 2 FR, 3 EFS (= unknown for a 3-class NOEFS model).')
 
 
@@ -139,5 +196,12 @@ if __name__ == '__main__':
     b = sub.add_parser('build'); b.add_argument('--src', required=True); b.add_argument('--dst', required=True)
     a = sub.add_parser('audit'); a.add_argument('--json', required=True); a.add_argument('--out', required=True)
     a.add_argument('--max_per_cls', type=int, default=13504)
+    g = sub.add_parser('gif2png', help='official MidJourney GIF->PNG conversion')
+    g.add_argument('--data', default=os.environ.get('DLED_DATA', os.path.expanduser('~/DLED/data')))
     args = ap.parse_args()
-    build(args.src, args.dst) if args.cmd == 'build' else audit(args.json, args.out, args.max_per_cls)
+    if args.cmd == 'build':
+        build(args.src, args.dst)
+    elif args.cmd == 'gif2png':
+        gif2png(args.data)
+    else:
+        audit(args.json, args.out, args.max_per_cls)

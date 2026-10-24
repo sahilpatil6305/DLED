@@ -32,7 +32,6 @@ mkdir -p ~/DLED && cd ~/DLED
 /usr/bin/python3.10 -m venv ~/DLED/venv          # own venv; no sudo, nothing system-wide
 source ~/DLED/venv/bin/activate
 python -m pip install torch==2.2.2+cu121 torchvision==0.17.2+cu121 --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple
-python -m pip install "numpy==1.26.4" --index-url https://pypi.org/simple
 git clone https://github.com/sahilpatil6305/DLED.git DLED-repro    # private: username + read-only token
 cd DLED-repro
 git diff --stat baseline-b8c41ea -- . ':!repro' ':!.gitignore'   # must print nothing
@@ -49,7 +48,7 @@ cd ~/DLED/DLED-repro && source repro/env.sh
 ```bash
 cd ~/DLED/DLED-repro
 source repro/env.sh          # activates ~/DLED/venv; first time also fetches the CLIP vocab
-pip install -r repro/requirements-dled.txt "numpy==1.26.4" --index-url https://pypi.org/simple
+pip install -r repro/requirements-dled.txt --index-url https://pypi.org/simple
 repro/run.sh smoke python repro/smoke_model.py
 ```
 
@@ -84,7 +83,9 @@ myaccount.google.com/permissions.
    unzip into `$DLED_DATA` (the zip starts with `FaceForensics++/…`).
 5. Test fakes (35 zips, 98 GB, Celeb-DF parts skipped):
    `nohup repro/get_test.sh > ~/DLED/runs/get_test.log 2>&1 &`
-6. Audit until both splits report 0 missing — the loader silently replaces
+6. MidJourney (official `change_json_path.py` rule): `python repro/noefs_data.py gif2png`
+   converts its GIFs to PNG; `build` already rewrote the paths and dropped the 5 broken images.
+7. Audit until both splits report 0 missing — the loader silently replaces
    missing images with sample 0:
    `repro/run.sh audit python repro/noefs_data.py audit --json $DLED_DATA/DF40/json_file --out $DLED_DATA/audit`
 

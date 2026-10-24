@@ -3,7 +3,7 @@
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Python environment: reuse the verified one (torch 2.2.2+cu121, numpy 1.26.4)
+# Python environment: reuse the verified one (torch 2.2.2+cu121, numpy 1.23.5)
 DLED_VENV="${DLED_VENV:-$HOME/DLED/venv}"
 if [ -f "$DLED_VENV/bin/activate" ]; then
     source "$DLED_VENV/bin/activate"
