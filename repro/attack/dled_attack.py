@@ -70,9 +70,17 @@ def build_detector(ckpt, device):
     if not isinstance(sd, dict):
         sd = sd.state_dict()
     missing, unexpected = det.load_state_dict(sd, strict=False)
-    missing = [k for k in missing if not k.startswith('loss_func')]
+    # LinearLoRA.forward (train mode) replaces each LoRA'd frozen weight by a plain
+    # tensor (merge_lora_param), so after step 1 it is no longer in state_dict and the
+    # checkpoint lacks it. Those weights are frozen CLIP: keep the pretrained ones.
+    # (FINDINGS F13: the in-training copy drifts slightly through fp16 merge/unmerge.)
+    frozen = [k for k in missing if k.endswith('.weight') and k[:-len('weight')] + 'w_lora_A' in sd]
+    missing = [k for k in missing if k not in frozen and not k.startswith('loss_func')]
     if missing or unexpected:
         raise RuntimeError(f'checkpoint mismatch: missing={missing[:5]} unexpected={unexpected[:5]}')
+    n_lora = sum(1 for k in sd if '_lora_' in k)
+    print(f'checkpoint : {len(sd)} tensors, {n_lora} LoRA, {len(frozen)} frozen LoRA base weights '
+          'taken from pretrained CLIP')
     det.model.device = torch.device(device)
     return det.to(device).eval()
 

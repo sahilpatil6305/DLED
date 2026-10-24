@@ -76,6 +76,13 @@ Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPU
 - The per-class vacuity thresholds are **not saved** with the checkpoint; they exist only as the log line `Retrieved uncertainty dict {...}` (trainer.calculate_uthre). The attack harness parses the last such line, which belongs to the `ckpt_best.pth` saved at the same test epoch.
 - `calculate_uthre` runs on the **augmented training loader** with the model still in train mode (no `setEval`). LoRA dropout is 0 and CLIP has no BatchNorm, so train vs eval mode does not change outputs; augmentation does.
 - Fused rule: accepted as c ⇔ c = argmax e and 1/(1+e_c) ≤ τ_c ⇔ log(1+e_c) ≥ −log τ_c. Rejection depends only on the top evidence, so an attacker who can raise one class's evidence past its gate is accepted regardless of the other classes.
+## F13. Checkpoints omit the LoRA base weights; in-training weights drift in fp16
+
+- `LinearLoRA.forward` (dropout 0, train mode) calls `merge_lora_param`, which `delattr`s the frozen `weight` Parameter and puts back a plain tensor `p + s·BA`, then `sub_lora_data` subtracts `s·BA` again. After the first step, the q/k/v/out weights of all 48 LoRA'd attention layers are no longer parameters, so `ckpt_best.pth` and the `--save_model` file do not contain them (343 MB instead of ~600 MB). Reloading takes them from pretrained CLIP. This is inherited from CLIP-LoRA's code (DLED's release omits loralib; our shim copies it).
+- In fp16, `(p + d) − d ≠ p` in general, so the "frozen" weights take a rounding random walk every step. A simulation with CLIP-like weights gives ≈0.26% mean relative drift after 3,000 steps, growing like √steps (estimate ≈1–1.5% after 84,400 steps). The official in-training test uses the drifted weights; a reloaded checkpoint uses pristine ones. **To measure:** evaluate the reloaded final checkpoint on the full NOFE_all test and compare with the logged Acc/DR.
+
+## F12 (cont.)
+
 - Frequency map in torch vs official NumPy: ≤1 grey level on 8.4e-4 of pixels (48 DF40 frames). Attacks use the torch map; all reported numbers use the official loader on saved 8-bit PNGs.
 
 ---
