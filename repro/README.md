@@ -115,3 +115,20 @@ tail -f ~/DLED/runs/RUNS_INDEX.txt     # one line appears when it finishes
 
 Paper target (FG 2026, Table I, EFS unseen): Acc 75.52, DR 34.71 — single seed,
 final epoch.
+
+## Step 7 — attack harness (research code, `repro/attack/`)
+
+`freq_torch.py` is a differentiable copy of the loader's input pipeline (spatial
+normalisation + FFT log-magnitude map, uint8 truncation via a straight-through
+estimator). The attacker perturbs the 224×224 image; a saved 224×224 PNG goes
+back through the official loader unchanged. CPU-only equivalence test, safe to
+run while the GPU trains:
+
+```bash
+repro/run.sh freq_equiv python repro/attack/test_freq_equivalence.py
+```
+
+Expect `FREQ EQUIVALENCE PASSED`: max 1 grey level difference on ~1e-5 of
+pixels (floating-point ties), identical spatial input, exact PNG round trip,
+finite STE gradients, and zero gradients for naive floor (gradient masking if
+not handled).
