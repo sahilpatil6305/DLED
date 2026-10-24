@@ -174,6 +174,11 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     to the 8-bit grid (stays within eps when eps is a multiple of 1/255).
     Returns x_adv (on the grid), first-success step (-1 = never), final loss."""
     alpha = alpha or 2.5 * eps / steps
+    # the unperturbed image is always a candidate: an attacker would not perturb an
+    # image that already produces the target error (the random start can undo it,
+    # because uniform noise changes the FFT spectrum strongly)
+    with torch.no_grad():
+        ok0 = success(attack, decide(forward(det, x0, quantize)['evidence'], thr_fused, K), y, K)
     if random_start:
         delta = (torch.rand(x0.shape, generator=generator, device='cpu').to(x0) * 2 - 1) * eps
     else:
@@ -181,6 +186,8 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     delta = (x0 + delta).clamp(0, 1) - x0
     best = delta.clone()
     hit = torch.full((x0.shape[0],), -1, dtype=torch.long, device=x0.device)
+    hit[ok0] = 0
+    best[ok0] = 0.0
     loss = None
     for t in range(steps + 1):
         delta.requires_grad_(True)

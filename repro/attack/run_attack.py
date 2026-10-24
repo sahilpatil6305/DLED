@@ -192,7 +192,7 @@ for attack in args.attacks:
     for eps_px in args.eps:
         eps = eps_px / 255.0
         t0 = time.time()
-        n_ok_h = n_ok_off = n_clean_ok = 0
+        n_ok_h = n_ok_off = n_clean_ok = n_ok_rn = 0
         for b in batches(idx, args.batch):
             x0 = torch.stack([ft.load_resized(samples[i][0]) for i in b]).to(dev)
             y = torch.tensor([samples[i][1] for i in b], device=dev)
@@ -210,6 +210,16 @@ for attack in args.attacks:
             d_off = official_decide(pngs)
             ok_off = da.success(attack, d_off, y.cpu(), K)
             ok_clean = da.success(attack, torch.tensor([clean[i] for i in b]), y.cpu(), K)
+            # random-noise baseline: uniform +-eps, 8-bit, official pipeline
+            noise = (torch.rand(x0.shape, generator=gen) * 2 - 1).to(x0) * eps
+            x_rn = torch.round((x0 + noise).clamp(0, 1) * 255.0) / 255.0
+            rn_pngs = []
+            for j, i in enumerate(b):
+                pp = os.path.join(tmp, f'{i}_rn.png')
+                ft.save_png(x_rn[j], pp)
+                rn_pngs.append(pp)
+            ok_rn = da.success(attack, official_decide(rn_pngs), y.cpu(), K)
+            n_ok_rn += int(ok_rn.sum())
             linf = ((x_adv - x0).abs().amax((1, 2, 3)) * 255).round().cpu()
             for j, i in enumerate(b):
                 rows.append([attack, eps_px, i, samples[i][1], samples[i][2], clean[i], int(d_h[j]),
@@ -221,11 +231,13 @@ for attack in args.attacks:
                     shutil.copy(pngs[j], os.path.join(ex_dir, f'{i}_y{samples[i][1]}_clean{clean[i]}_adv{int(d_off[j])}.png'))
             n_ok_h += int(ok_h.sum()); n_ok_off += int(ok_off.sum()); n_clean_ok += int(ok_clean.sum())
         n = len(idx)
-        res = {'n': n, 'clean_rate': n_clean_ok / max(n, 1), 'harness_rate': n_ok_h / max(n, 1),
+        res = {'n': n, 'clean_rate': n_clean_ok / max(n, 1), 'noise_rate': n_ok_rn / max(n, 1),
+               'harness_rate': n_ok_h / max(n, 1),
                'official_rate': n_ok_off / max(n, 1), 'seconds': round(time.time() - t0, 1)}
         summary['results'][f'{attack}@{eps_px:g}'] = res
         log(f'{attack:4s} eps={eps_px:g}/255  n={n:4d}  success clean={res["clean_rate"]:.3f}  '
-            f'harness={res["harness_rate"]:.3f}  OFFICIAL={res["official_rate"]:.3f}  ({res["seconds"]}s)')
+            f'noise={res["noise_rate"]:.3f}  harness={res["harness_rate"]:.3f}  '
+            f'OFFICIAL={res["official_rate"]:.3f}  ({res["seconds"]}s)')
 
 with open(os.path.join(args.out, 'per_sample.csv'), 'w', newline='') as f:
     w = csv.writer(f)
@@ -248,10 +260,10 @@ with open(os.path.join(args.out, 'summary.json'), 'w') as f:
 with open(os.path.join(args.out, 'summary.txt'), 'w') as f:
     f.write(f"clean (K+1)-acc {summary['clean_acc']:.3f}  unknown DR {summary['clean_unknown_dr']:.3f}  "
             f"harness/official clean agreement {summary['clean_agreement']:.3f}\n")
-    f.write('attack  eps  n  clean_success  official_success\n')
+    f.write('attack  eps  n  clean_success  noise_success  official_success\n')
     for k, v in summary['results'].items():
         a, e = k.split('@')
-        f.write(f"{a:5s} {e:>4s} {v['n']:4d}  {v['clean_rate']:.3f}  {v['official_rate']:.3f}\n")
+        f.write(f"{a:5s} {e:>4s} {v['n']:4d}  {v['clean_rate']:.3f}  {v['noise_rate']:.3f}  {v['official_rate']:.3f}\n")
     for k, v in checks.items():
         f.write(f'check {k}: {v}\n')
 shutil.rmtree(tmp, ignore_errors=True)
