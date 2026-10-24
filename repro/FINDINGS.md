@@ -71,6 +71,13 @@ Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPU
 - **`mobileswap.zip` (test) contains a nested `ff/frames.zip`** whose images sit under the authors' internal path `…/deepfakes_detection_datasets/DF40/mobileswap/ff/frames/`; moved into place (27,279 images, exactly the missing count).
 - **StyleGAN2 and StyleGAN3 test images (FF domain) are identical** (same 3,711 file names; first 200 byte-identical — full comparison pending). Kept as released for the baseline; report per-generator results with this caveat.
 
+## F12. Rejection thresholds (relevant to attacks)
+
+- The per-class vacuity thresholds are **not saved** with the checkpoint; they exist only as the log line `Retrieved uncertainty dict {...}` (trainer.calculate_uthre). The attack harness parses the last such line, which belongs to the `ckpt_best.pth` saved at the same test epoch.
+- `calculate_uthre` runs on the **augmented training loader** with the model still in train mode (no `setEval`). LoRA dropout is 0 and CLIP has no BatchNorm, so train vs eval mode does not change outputs; augmentation does.
+- Fused rule: accepted as c ⇔ c = argmax e and 1/(1+e_c) ≤ τ_c ⇔ log(1+e_c) ≥ −log τ_c. Rejection depends only on the top evidence, so an attacker who can raise one class's evidence past its gate is accepted regardless of the other classes.
+- Frequency map in torch vs official NumPy: ≤1 grey level on 8.4e-4 of pixels (48 DF40 frames). Attacks use the torch map; all reported numbers use the official loader on saved 8-bit PNGs.
+
 ---
 
 Setup and run steps: see `repro/README.md`.

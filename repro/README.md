@@ -128,7 +128,20 @@ run while the GPU trains:
 repro/run.sh freq_equiv python repro/attack/test_freq_equivalence.py
 ```
 
-Expect `FREQ EQUIVALENCE PASSED`: max 1 grey level difference on ~1e-5 of
-pixels (floating-point ties), identical spatial input, exact PNG round trip,
-finite STE gradients, and zero gradients for naive floor (gradient masking if
-not handled).
+Expect `FREQ EQUIVALENCE PASSED`: max 1 grey level difference on ~8e-4 of
+pixels (torch vs NumPy FFT rounding at integer boundaries; measured
+2026-10-24), identical spatial input, exact PNG round trip, finite STE
+gradients, and zero gradients for naive floor (gradient masking if not
+handled). Because of that small mismatch, the torch map is used only to
+compute attacks; every reported number comes from the official loader.
+
+`dled_attack.py` / `run_attack.py`: rejection-aware PGD (error types E1, E2,
+E3, E3R, E4 defined at the top of `dled_attack.py`). The attack runs on a float32
+copy; each adversarial image is rounded to 8 bits, saved as PNG, re-read by the
+official loader and decided by the official `model_inference` with the
+thresholds from the training log. CPU smoke test (works mid-training, uses the
+epoch-0 checkpoint):
+
+```bash
+repro/run.sh attack_smoke python repro/attack/run_attack.py --run <baseline run folder> --device cpu --n_per_class 2 --steps 5 --eps 8 --batch 2
+```
