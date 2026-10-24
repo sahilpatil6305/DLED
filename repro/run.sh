@@ -61,9 +61,16 @@ MON=$!
 
 BEFORE="$(ls -1d logs/*/ 2>/dev/null | sort)"
 new_logger_dirs() { comm -13 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$(ls -1d logs/*/ 2>/dev/null | sort)") | sed '/^$/d'; }
-# link DLED's logger folder into the run folder as soon as train.py creates it
-( for _ in $(seq 120); do sleep 10; d="$(new_logger_dirs | head -1)"
-    [ -n "$d" ] && { ln -sfn "$REPO/${d%/}" "$RD/dled_logs"; break; }; done ) &
+# link DLED's log folders into the run folder as soon as they appear. DLED makes
+# two, seconds apart: train.py's logger (training.log) and the trainer's
+# (test/<dataset>/ckpt_best.pth, metric pickles).
+( for _ in $(seq 120); do sleep 10; k=0
+    while read -r d; do
+      [ -z "$d" ] && continue
+      [ $k -eq 0 ] && l="$RD/dled_logs" || l="$RD/dled_logs_$(basename "$d")"
+      [ -e "$l" ] || ln -sfn "$REPO/${d%/}" "$l"; k=$((k + 1))
+    done <<< "$(new_logger_dirs)"
+    [ $k -ge 2 ] && break; done ) &
 WATCH=$!
 
 START=$(date +%s)
@@ -78,7 +85,8 @@ while read -r d; do
   [ -z "$d" ] && continue
   src="$REPO/${d%/}"; [ -L "$src" ] && continue
   dst="$RD/dled_logs"; [ $n -gt 0 ] && dst="$RD/dled_logs_$(basename "$src")"
-  rm -f "$RD/dled_logs" 2>/dev/null
+  [ -L "$dst" ] && rm -f "$dst"                     # drop the live link before moving
+  for l in "$RD"/dled_logs*; do [ -L "$l" ] && [ "$(readlink "$l")" = "$src" ] && rm -f "$l"; done
   mv "$src" "$dst" && ln -s "$dst" "$src"
   n=$((n + 1))
 done <<< "$(new_logger_dirs)"
