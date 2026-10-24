@@ -109,7 +109,7 @@ repro/run.sh pilot env DLED_NUM_EPOCHS=2 DLED_TEST_FRE=1 DLED_MAX_SAMPLES_PER_CL
 ## Step 6 — VM: full baseline (official settings, survives logout)
 
 ```bash
-nohup repro/run.sh baseline_noefs ./train.sh NOEFS --save_model --save_path ~/DLED/runs/ckpt_noefs > /dev/null 2>&1 &
+nohup repro/run.sh baseline_noefs ./train.sh NOEFS --save_model --save_path {RUN}/checkpoints > /dev/null 2>&1 &
 tail -f ~/DLED/runs/RUNS_INDEX.txt     # one line appears when it finishes
 ```
 
