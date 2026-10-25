@@ -138,9 +138,10 @@ def main():
 
     # fig3/4 training curves
     epoch_len = 54016 // 32 + (1 if 54016 % 32 else 0)
-    for name, d, ylab in (('fig3_training_loss', loss, 'loss (mean over last 300 iterations)'),
-                          ('fig4_training_metrics', metric, 'value (mean over last 300 iterations)')):
-        keys = [k for k in d if len(d[k]) > 2]
+    for name, d, ttl in (('fig3_training_loss', loss, 'Training losses'),
+                         ('fig4_training_metrics', metric, 'Training metrics')):
+        # drop placeholders: DLED logs -1 for metrics it does not compute (e.g. ap/auc in 3-class training)
+        keys = [k for k in d if len(d[k]) > 2 and len({v for _, v in d[k]}) > 1]
         if not keys:
             print(f'{name} skipped: no training lines in log')
             continue
@@ -152,8 +153,7 @@ def main():
             ax.plot(np.array(it) / epoch_len, v, color=C1, lw=1.5)
             ax.set_ylabel(k, fontsize=8.5)
         axs[-1].set_xlabel('epoch')
-        axs[0].set_title(name.split('_', 1)[1].replace('_', ' ').capitalize() + f' ({ylab})',
-                         fontsize=10, color=INK, loc='left')
+        axs[0].set_title(f'{ttl}, mean of each 300-iteration window', fontsize=10, color=INK, loc='left')
         save(fig, out, name)
 
     # fig5 lr
