@@ -90,20 +90,40 @@ with torch.no_grad():
         preds.append(p.cpu().numpy()); labels.append(dd['label'].cpu().numpy())
 preds, labels = np.concatenate(preds), np.concatenate(labels)
 
-res = {'ckpt': ckpt, 'thresholds_from': thr_src, 'n': int(len(labels)),
+os.makedirs(args.out, exist_ok=True)
+np.save(os.path.join(args.out, 'reload_preds.npy'), preds)
+np.save(os.path.join(args.out, 'reload_labels.npy'), labels)
+conf = np.zeros((K + 1, K + 1), dtype=int)                 # rows: true label, cols: decision
+for t, p in zip(labels, preds):
+    conf[int(t), int(p)] += 1
+res = {'ckpt': ckpt, 'thresholds_from': thr_src, 'fused_tau': {str(k): v for k, v in thr['fused'].items()},
+       'n': int(len(labels)),
        'reload': {'fused_acc': float(np.mean(preds == labels)),
+                  'binary_acc': float(np.mean((preds != 0) == (labels != 0))),
                   **{f'class{c}': float(np.mean(preds[labels == c] == c)) for c in range(K + 1)}},
+       'confusion_rows_true_cols_decision': conf.tolist(),
+       'clean_E3R_unknown_accepted_as_real': float(np.mean(preds[labels == K] == 0)),
+       'clean_E3_unknown_accepted_any_known': float(np.mean(preds[labels == K] < K)),
        'logged': logged}
 pk = os.path.join(os.path.dirname(ckpt), 'metric_dict_best.pickle')
 if os.path.isfile(pk):
+    # the pickle stores BINARY labels and predictions (0 real, 1 fake) in test-loader order
     with open(pk, 'rb') as f:
         md = pickle.load(f)
-    lp, ll = np.asarray(md.get('fused_pred')), np.asarray(md.get('label'))
+    lp, ll = np.asarray(md.get('fused_pred')).astype(int), np.asarray(md.get('label')).astype(int)
+    res['pickle_keys'] = sorted(md.keys())
+    res['pickle_label_values'] = sorted(set(ll.tolist()))[:10]
     if lp.shape == preds.shape and ll.shape == labels.shape:
-        res['same_order_as_training'] = bool(np.array_equal(ll, labels))
-        res['per_sample_agreement_with_training'] = float(np.mean(lp == preds))
-        res['training_pickle'] = {'fused_acc': float(np.mean(lp == ll)),
-                                  **{f'class{c}': float(np.mean(lp[ll == c] == c)) for c in range(K + 1)}}
+        bl, bp = (labels != 0).astype(int), (preds != 0).astype(int)
+        res['same_binary_label_order_as_training'] = bool(np.array_equal(ll, bl))
+        res['binary_label_match_rate'] = float(np.mean(ll == bl))
+        res['per_sample_binary_agreement_with_training'] = float(np.mean(lp == bp))
+        res['training_binary_acc'] = float(np.mean(lp == ll))
+        for c in range(K + 1):                              # per true class: P(predicted fake), training vs reload
+            m = labels == c
+            if res['same_binary_label_order_as_training']:
+                res[f'class{c}_pred_fake_training'] = float(np.mean(lp[m] == 1))
+                res[f'class{c}_pred_fake_reload'] = float(np.mean(bp[m] == 1))
     else:
         res['pickle_note'] = f'shapes differ: pickle pred {lp.shape} label {ll.shape} vs reload {preds.shape}'
 
