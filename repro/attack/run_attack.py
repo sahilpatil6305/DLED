@@ -142,7 +142,7 @@ det_off = da.build_detector(ckpt, dev)                      # official, native p
 if args.device == 'cpu':                                    # fp16 matmuls are not reliable on CPU
     det_off = da.to_fp32(det_off)
 det_atk = da.to_fp32(da.build_detector(ckpt, dev))          # attack copy
-log('official precision:', next(det_off.model.spatial_image_encoder.parameters()).dtype,
+log('official precision:', det_off.model.spatial_image_encoder.conv1.weight.dtype,
     '| attack precision: float32')
 
 

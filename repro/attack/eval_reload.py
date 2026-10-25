@@ -35,6 +35,7 @@ import train as T  # noqa: E402  (training/train.py; main() is guarded)
 ap = argparse.ArgumentParser()
 ap.add_argument('--run', required=True)
 ap.add_argument('--ckpt')
+ap.add_argument('--log', nargs='*', help='log(s) with the thresholds (default: from --run)')
 ap.add_argument('--batch', type=int, default=None, help='default: test_batchSize from the config')
 ap.add_argument('--out', default=os.environ.get('DLED_LOG_DIR', '.'))
 args = ap.parse_args()
@@ -49,14 +50,15 @@ if not ckpts and os.path.islink(os.path.join(run, 'dled_logs')):
     ckpts = [c for c in ckpts if os.path.getmtime(c) >= os.path.getmtime(os.path.join(run, 'meta.txt'))]
 assert len(ckpts) == 1, f'need exactly one checkpoint, found {ckpts}; pass --ckpt'
 ckpt = ckpts[0]
-logs = sorted(glob.glob(os.path.join(run, 'dled_logs*', 'training.log'))) + sorted(glob.glob(os.path.join(run, 'DLED_*.log')))
+logs = args.log or (sorted(glob.glob(os.path.join(run, 'dled_logs*', 'training.log'))) +
+                   sorted(glob.glob(os.path.join(run, 'DLED_*.log'))))
 thr, thr_src = da.load_thresholds(logs)
 print('checkpoint :', ckpt)
 print('thresholds :', thr_src, '| fused', {k: round(v, 5) for k, v in thr['fused'].items()})
 
 logged = {}
-with open([l for l in logs if os.path.basename(l).startswith('DLED_')][-1], errors='replace') as f:
-    txt = f.read()
+_dl = [l for l in logs if os.path.basename(l).startswith('DLED_')]
+txt = open(_dl[-1], errors='replace').read() if _dl else ''   # no in-training test log for AT models
 for c in range(K + 1):
     m = re.findall(rf'Class {c} fused accuracy: ([0-9.]+)', txt)
     if m:

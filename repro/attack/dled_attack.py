@@ -41,8 +41,9 @@ ATTACKS = {   # name -> (labels it applies to, given K)
 
 
 # ---------------------------------------------------------------- model
-def dled_config(num_classes=3):
-    """Same YAML merge and overrides as train.py / repro/smoke_model.py (NOEFS)."""
+def dled_config(num_classes=3, prec=None):
+    """Same YAML merge and overrides as train.py / repro/smoke_model.py (NOEFS).
+    prec: override TRAINER.PREC (e.g. 'fp32' for CPU tests); None keeps the official fp16."""
     import yaml
     with open(os.path.join(REPO, 'training/config/detector/dled.yaml')) as f:
         config = yaml.safe_load(f)
@@ -59,13 +60,17 @@ def dled_config(num_classes=3):
         train_dataset=['DF40_FF_train_NOEFS'], test_dataset=['DF40_FF_test_NOFE_all'],
         num_classes=num_classes))
     config.setdefault('backbone_config', {})['num_classes'] = num_classes
+    if prec:
+        config['TRAINER']['PREC'] = prec
     return config
 
 
-def build_detector(ckpt, device):
-    """Official detector (native fp16 CLIP weights) with the checkpoint loaded, eval mode."""
+def build_detector(ckpt, device, mode='eval', prec=None):
+    """Official detector (native fp16 CLIP weights unless prec) with the checkpoint loaded.
+    mode='eval' (merges LoRA into the weights) or 'train' (for fine-tuning; never call eval first,
+    each merge/unmerge in fp16 perturbs the frozen weights, see FINDINGS F13)."""
     from detectors import DETECTOR
-    det = DETECTOR['dled'](dled_config())
+    det = DETECTOR['dled'](dled_config(prec=prec))
     sd = torch.load(ckpt, map_location='cpu')
     if not isinstance(sd, dict):
         sd = sd.state_dict()
@@ -82,7 +87,8 @@ def build_detector(ckpt, device):
     print(f'checkpoint : {len(sd)} tensors, {n_lora} LoRA, {len(frozen)} frozen LoRA base weights '
           'taken from pretrained CLIP')
     det.model.device = torch.device(device)
-    return det.to(device).eval()
+    det = det.to(device)
+    return det.train() if mode == 'train' else det.eval()
 
 
 def to_fp32(det):

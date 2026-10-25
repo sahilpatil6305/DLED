@@ -145,3 +145,18 @@ epoch-0 checkpoint):
 ```bash
 repro/run.sh attack_smoke python repro/attack/run_attack.py --run <baseline run folder> --device cpu --n_per_class 2 --steps 5 --eps 8 --batch 2
 ```
+
+## Step 8 — adversarial training (research code, `repro/adv_train/`)
+
+`at_train.py` fine-tunes the trained DLED checkpoint with one of four modes, using DLED's
+own model, loss and optimisers: `clean` (control: same fine-tuning, no attack), `pgd`
+(Madry PGD-AT), `evat` (EV-AT-style evidential alignment), `reject` (rejection-aware: the
+adversary pushes known inputs into rejection and fakes towards "real"). The attack
+perturbs the un-augmented 224×224 image, as at test time. It saves the complete weights
+(including the frozen LoRA base weights DLED's checkpoints omit, F13) and recomputes the
+thresholds the official way into `training.log`, so the attack harness evaluates it unchanged.
+
+```bash
+repro/run.sh at_smoke repro/adv_train/smoke_at.sh ~/DLED/runs/20261024-152447_baseline_noefs   # CPU, ~15-30 min
+nohup repro/adv_train/queue_at.sh ~/DLED/runs/20261024-152447_baseline_noefs > ~/DLED/runs/queue_at.log 2>&1 &   # GPU, ~1.5 days
+```
