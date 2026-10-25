@@ -152,7 +152,21 @@ def _accept_loss(z, c, lgate, kappa):
     return F.relu(kappa + other - zc) + F.relu(kappa + lgate[c] - zc)
 
 
-def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05):
+def ce_loss(attack, evidence, y, K):
+    """Baseline for the ablation: standard cross-entropy PGD on DLED's fused class
+    probabilities p = alpha / sum(alpha), ignoring the rejection gate.
+    E1/E2: untargeted (raise CE of the true class); E3: targeted to the currently most
+    likely known class; E3R/E4: targeted to real. Returns a loss to MINIMISE."""
+    logp = torch.log((evidence.float() + 1.0) / (evidence.float() + 1.0).sum(1, keepdim=True))
+    if attack in ('E1', 'E2'):
+        return logp.gather(1, y.clamp(max=K - 1)[:, None])[:, 0]          # minimise log p_y
+    c = logp.argmax(1) if attack == 'E3' else torch.zeros_like(y)
+    return -logp.gather(1, c[:, None])[:, 0]                               # minimise -log p_c
+
+
+def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05, loss='margin'):
+    if loss == 'ce':
+        return ce_loss(attack, evidence, y, K)
     z = torch.log1p(evidence.float())
     lgate = -torch.log(torch.tensor([thr_fused[c] for c in range(K)], device=z.device))
     if attack == 'E2':                                  # every class below its own gate
@@ -168,7 +182,7 @@ def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05):
 
 # ---------------------------------------------------------------- PGD
 def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_start=True,
-        quantize='ste', kappa=0.05, generator=None):
+        quantize='ste', kappa=0.05, generator=None, loss_type='margin'):
     """L_inf PGD in [0,1] pixel space of the 224x224 image. eps in [0,1] units.
     Keeps the first successful iterate per sample (else the last), then rounds
     to the 8-bit grid (stays within eps when eps is a multiple of 1/255).
@@ -192,7 +206,7 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     for t in range(steps + 1):
         delta.requires_grad_(True)
         out = forward(det, x0 + delta, quantize)
-        loss = attack_loss(attack, out['evidence'], y, thr_fused, K, kappa)
+        loss = attack_loss(attack, out['evidence'], y, thr_fused, K, kappa, loss_type)
         with torch.no_grad():
             ok = success(attack, decide(out['evidence'], thr_fused, K), y, K)
             new = ok & (hit < 0)
