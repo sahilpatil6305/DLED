@@ -25,6 +25,7 @@ tqdm
 lmdb                             # imported unconditionally by the dataset module
 tensorboard                      # torch.utils.tensorboard.SummaryWriter
 Pillow
+matplotlib<3.9                   # repro/plot_baseline.py only (numpy 1.23 compatible)
 
 # CLIP tokenizer
 ftfy
