@@ -19,6 +19,10 @@ LOG="$BASE/DLED_NOEFS.log"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 source repro/env.sh > /dev/null
 RUNS="${DLED_RUNS:-$HOME/DLED/runs}"
+# every model is attacked on the SAME images (paired comparison): paper_margin's sample list
+SAMPLES="${AT_SAMPLES:-$(ls -td "$RUNS"/*_paper_margin | head -1)/samples.csv}"
+[ -f "$SAMPLES" ] || { echo "no samples.csv at $SAMPLES"; exit 1; }
+echo "attack evaluations use $SAMPLES"
 
 echo "[$(date -Is)] AT queue start"
 # pre-flight: 20 real GPU steps of the most memory-hungry mode at full batch size; stop the
@@ -38,7 +42,7 @@ for m in clean pgd evat reject; do
   repro/run.sh "${name}_clean_eval" python repro/attack/eval_reload.py --run "$RD" \
       --ckpt "$RD/at_last.pth" --log "$RD/training.log"
   repro/run.sh "${name}_attack" python repro/attack/run_attack.py --ckpt "$RD/at_last.pth" \
-      --log "$RD/training.log" --n_per_class 100 --eps 1 2 4 8 --steps 50 --seed 0
+      --log "$RD/training.log" --samples_csv "$SAMPLES" --n_per_class 100 --eps 1 2 4 8 --steps 50
   echo "[$(date -Is)] $name evaluated"
 done
 echo "[$(date -Is)] AT queue done"

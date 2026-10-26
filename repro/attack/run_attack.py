@@ -36,6 +36,7 @@ ap.add_argument('--log', nargs='*', help='log file(s) holding "Retrieved uncerta
 ap.add_argument('--json_dir', default=os.path.join(os.environ.get('DLED_DATA', os.path.expanduser('~/DLED/data')), 'DF40/json_file'))
 ap.add_argument('--n_per_class', type=int, default=50)
 ap.add_argument('--seed', type=int, default=0)
+ap.add_argument('--samples_csv', help='reuse the images of an earlier run (its samples.csv); first n_per_class per label')
 ap.add_argument('--attacks', nargs='+', default=['E1', 'E2', 'E3', 'E3R', 'E4'])
 ap.add_argument('--eps', nargs='+', type=float, default=[1, 2, 4, 8], help='in 1/255 units')
 ap.add_argument('--steps', type=int, default=50)
@@ -122,20 +123,37 @@ ds = D.__new__(D)
 ds.config, ds.mode = cfg, 'test'
 ds.compression, ds.frame_num = cfg['compression'], cfg['frame_num']['test']
 ds.video_level, ds.clip_size, ds.lmdb = False, None, False
-paths, labels, _ = ds.collect_img_and_label_for_one_dataset('DF40_FF_test_NOFE_all')
-rng = random.Random(args.seed)
 samples = []
-for lab in range(K + 1):
-    idx = [i for i, l in enumerate(labels) if l == lab]
-    for i in sorted(rng.sample(idx, min(args.n_per_class, len(idx)))):
-        p = paths[i]
-        method = p.split('/DF40/')[1].split('/')[0] if '/DF40/' in p else 'FF++_real'
-        samples.append((p, lab, method))
+if args.samples_csv:
+    # reuse an exact image list (paired comparisons): the first n_per_class rows of each label
+    per = {}
+    for r in csv.DictReader(open(os.path.expanduser(args.samples_csv))):
+        lab = int(r['label'])
+        if len(per.setdefault(lab, [])) < args.n_per_class:
+            per[lab].append((r['path'], lab, r['method']))
+    for lab in range(K + 1):
+        samples += per.get(lab, [])
+    src_txt = f'from {args.samples_csv}'
+else:
+    # DLED's collection ends with random.shuffle on the global RNG, so its order differs per
+    # process; sort by path before sampling so the same seed gives the same images every time
+    random.seed(args.seed)
+    paths, labels, _ = ds.collect_img_and_label_for_one_dataset('DF40_FF_test_NOFE_all')
+    order = sorted(range(len(paths)), key=lambda i: paths[i])
+    paths, labels = [paths[i] for i in order], [labels[i] for i in order]
+    rng = random.Random(args.seed)
+    for lab in range(K + 1):
+        idx = [i for i, l in enumerate(labels) if l == lab]
+        for i in sorted(rng.sample(idx, min(args.n_per_class, len(idx)))):
+            p = paths[i]
+            method = p.split('/DF40/')[1].split('/')[0] if '/DF40/' in p else 'FF++_real'
+            samples.append((p, lab, method))
+    src_txt = f'seed {args.seed}, sorted'
 with open(os.path.join(args.out, 'samples.csv'), 'w', newline='') as f:
     w = csv.writer(f); w.writerow(['idx', 'path', 'label', 'method'])
     for i, (p, l, m) in enumerate(samples):
         w.writerow([i, p, l, m])
-log(f'samples    : {len(samples)} ({args.n_per_class} per label, seed {args.seed})')
+log(f'samples    : {len(samples)} (up to {args.n_per_class} per label, {src_txt})')
 
 # ------------------------------------------------------------ models
 det_off = da.build_detector(ckpt, dev)                      # official, native precision
