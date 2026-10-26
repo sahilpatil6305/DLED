@@ -51,6 +51,9 @@ ap.add_argument('--alpha', type=float, default=0.0, help='step size in 1/255; 0 
 ap.add_argument('--w_adv', type=float, default=1.0)
 ap.add_argument('--beta', type=float, default=1.0, help='evat alignment weight')
 ap.add_argument('--kappa', type=float, default=0.05)
+ap.add_argument('--anneal_epoch', type=int, default=49, help='epoch passed to DLED\'s loss (AvU/KL annealing); '
+               '49 of 50 = where the official run ended, so fine-tuning keeps its final objective')
+ap.add_argument('--anneal_total', type=int, default=50)
 ap.add_argument('--grad_scale', type=float, default=1024.0, help='loss scale for fp16 input gradients')
 ap.add_argument('--thr_batches', type=int, default=0, help='0 = full train loader for thresholds')
 ap.add_argument('--log_every', type=int, default=50)
@@ -214,7 +217,7 @@ def main():
             clean = {'image': dd['image'].to(dev), 'freq': dd['freq'].to(dev), 'label': y}
             det.model_zero_grad()
             # clean (official) loss, backpropagated first to free its graph
-            loss_c, _ = official_loss(det, clean, epoch, args.epochs)
+            loss_c, _ = official_loss(det, clean, args.anneal_epoch, args.anneal_total)
             loss_c.backward()
             rec = {'step': step, 'epoch': epoch, 'lr': lr, 'loss_clean': float(loss_c)}
             if args.mode != 'clean':
@@ -225,7 +228,7 @@ def main():
                     pred_a = det(adv, 'fusion')
                     loss_a = args.beta * (torch.log(pred_a['pred_alpha'].float()) - ref).pow(2).sum(1).mean()
                 else:
-                    loss_a, pred_a = official_loss(det, adv, epoch, args.epochs)
+                    loss_a, pred_a = official_loss(det, adv, args.anneal_epoch, args.anneal_total)
                     if args.mode == 'reject':
                         z = torch.log1p(pred_a['evidence'].float())
                         lg = -torch.log(torch.tensor([thr_f[c] for c in range(K)], device=z.device))
@@ -259,6 +262,8 @@ def main():
     det.train()                                  # official computes them in train mode too
     thr = thresholds(det, loader, args.thr_batches)
     log('Retrieved uncertainty dict {} !'.format(thr))
+    if torch.cuda.is_available():
+        log(f'peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB')
     log(f'AT TRAINING DONE in {(time.time() - t0) / 3600:.2f} h -> {args.out}')
 
 

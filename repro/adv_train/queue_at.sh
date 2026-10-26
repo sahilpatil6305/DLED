@@ -21,6 +21,13 @@ source repro/env.sh > /dev/null
 RUNS="${DLED_RUNS:-$HOME/DLED/runs}"
 
 echo "[$(date -Is)] AT queue start"
+# pre-flight: 20 real GPU steps of the most memory-hungry mode at full batch size; stop the
+# whole queue if it fails (e.g. out of memory) instead of failing four long runs in a row
+repro/run.sh at_preflight python repro/adv_train/at_train.py --mode evat --ckpt "$CKPT" --log "$LOG" \
+    --out {RUN} --epochs 1 --steps_per_epoch 20 --thr_batches 2 --log_every 5 --eps 4 --attack_steps 3 \
+    || { echo "[$(date -Is)] PRE-FLIGHT FAILED, queue stopped"; exit 1; }
+PF="$(ls -td "$RUNS"/*_at_preflight | head -1)"
+grep -E "s/step|precision|peak GPU" "$PF/console.log" | tail -3
 for m in clean pgd evat reject; do
   name="at_$m"; [ "$m" = clean ] && name="ft_clean"
   repro/run.sh "$name" python repro/adv_train/at_train.py --mode "$m" --ckpt "$CKPT" --log "$LOG" \
