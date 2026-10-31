@@ -188,7 +188,7 @@ def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05, loss='margin'):
 
 # ---------------------------------------------------------------- PGD
 def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_start=True,
-        quantize='ste', kappa=0.05, generator=None, loss_type='margin', grid_verify=True):
+        quantize='ste', kappa=0.05, generator=None, loss_type='margin', grid_verify=True, round_ste=True):
     """L_inf PGD in [0,1] pixel space of the 224x224 image. eps in [0,1] units.
     Keeps the first successful iterate per sample (else the last), then rounds
     to the 8-bit grid (stays within eps when eps is a multiple of 1/255).
@@ -198,6 +198,12 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     in-loop successes were undone by the final rounding (at_pgd, E2, 2/255: 133 in-loop
     hits, 25 official), so earlier runs understate success. grid_verify=False reproduces
     the runs made before this change.
+    round_ste=True (default since 1 Nov 2026): the loss and gradient are computed on the
+    8-bit rounded image, with a straight-through gradient through the rounding. Without it
+    the margin loss reaches exactly 0 on the continuous iterate while the rounded image still
+    fails, the gradient vanishes and the sample stalls (at_pgd, E2: 95/117 failures at 50
+    steps and 98/126 at 200 steps had final loss 0), so more steps gave LOWER success.
+    round_ste=False reproduces the runs of 31 Oct 2026.
     Returns x_adv (on the grid), first-success step (-1 = never), final loss."""
     alpha = alpha or 2.5 * eps / steps
     # the unperturbed image is always a candidate: an attacker would not perturb an
@@ -217,7 +223,10 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     loss = None
     for t in range(steps + 1):
         delta.requires_grad_(True)
-        out = forward(det, x0 + delta, quantize)
+        xin = x0 + delta
+        if round_ste:
+            xin = xin + (torch.round(xin * 255.0) / 255.0 - xin).detach()
+        out = forward(det, xin, quantize)
         loss = attack_loss(attack, out['evidence'], y, thr_fused, K, kappa, loss_type)
         with torch.no_grad():
             ok = success(attack, decide(out['evidence'], thr_fused, K), y, K)
