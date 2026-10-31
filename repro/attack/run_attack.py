@@ -42,6 +42,8 @@ ap.add_argument('--eps', nargs='+', type=float, default=[1, 2, 4, 8], help='in 1
 ap.add_argument('--steps', type=int, default=50)
 ap.add_argument('--restarts', type=int, default=1, help='random restarts for samples that still fail')
 ap.add_argument('--no_random_start', action='store_true')
+ap.add_argument('--no_grid_verify', action='store_true',
+                help='old behaviour (runs before 31 Oct 2026): accept continuous in-loop successes without checking the 8-bit image')
 ap.add_argument('--quantize', default='ste', choices=['ste', 'none', 'floor'])
 ap.add_argument('--kappa', type=float, default=0.05)
 ap.add_argument('--loss', default='margin', choices=['margin', 'ce'], help='margin = rejection-aware (ours); ce = standard CE-PGD baseline')
@@ -218,7 +220,7 @@ for attack in args.attacks:
             y = torch.tensor([samples[i][1] for i in b], device=dev)
             x_adv, hit, loss = da.pgd(det_atk, x0, y, attack, thr_f, K, eps, args.steps,
                                       random_start=not args.no_random_start,
-                                      quantize=args.quantize, kappa=args.kappa, generator=gen, loss_type=args.loss)
+                                      quantize=args.quantize, kappa=args.kappa, generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify)
             with torch.no_grad():
                 d_h = da.decide(da.forward(det_atk, x_adv, 'floor')['evidence'], thr_f, K)
             # random restarts: re-attack only the samples that still fail (new random start each time)
@@ -228,7 +230,7 @@ for attack in args.attacks:
                     break
                 xa, hr, lr_ = da.pgd(det_atk, x0[fail], y[fail], attack, thr_f, K, eps, args.steps,
                                      random_start=True, quantize=args.quantize, kappa=args.kappa,
-                                     generator=gen, loss_type=args.loss)
+                                     generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify)
                 with torch.no_grad():
                     dr = da.decide(da.forward(det_atk, xa, 'floor')['evidence'], thr_f, K)
                 won = da.success(attack, dr, y[fail], K)

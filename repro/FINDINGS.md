@@ -85,6 +85,12 @@ Also note `ImageCompression`, `normalize` with mean/std 0.5 (the dled.yaml `INPU
 
 - Frequency map in torch vs official NumPy: ≤1 grey level on 8.4e-4 of pixels (48 DF40 frames). Attacks use the torch map; all reported numbers use the official loader on saved 8-bit PNGs.
 
+## F14. Continuous-space successes are mostly undone by 8-bit rounding (attack weakness, fixed 31 Oct 2026)
+
+- `pgd` stopped each sample at its first successful *continuous* iterate and rounded to the 8-bit grid only at the end. Measured on at_pgd, E2, eps 2/255, the first 50 known images per label (run 20261027-110333_at_pgd_attack): **133/150 succeeded in the loop, only 25/150 after rounding (108 lost).** Rounding moves each pixel by up to 0.5/255 (a quarter of a 2/255 budget), and the uint8 frequency map reacts strongly to such changes.
+- Visible symptom: the 200-step x 3-restart run (20261031-073749_at_pgd_strongE2) broke fewer images (12.7%) than the 50-step run on the same images (16.7%): smaller steps stop closer to the boundary, so rounding undoes more.
+- Consequence: **every attack number before 31 Oct 2026 is a lower bound on vulnerability**, and model rankings may change. Fix: `grid_verify` (default) accepts an iterate only if its rounded version also succeeds with the official-equivalent forward; other samples keep being optimised. `--no_grid_verify` reproduces the old runs.
+
 ---
 
 Setup and run steps: see `repro/README.md`.

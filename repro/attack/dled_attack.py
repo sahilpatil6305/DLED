@@ -188,10 +188,16 @@ def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05, loss='margin'):
 
 # ---------------------------------------------------------------- PGD
 def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_start=True,
-        quantize='ste', kappa=0.05, generator=None, loss_type='margin'):
+        quantize='ste', kappa=0.05, generator=None, loss_type='margin', grid_verify=True):
     """L_inf PGD in [0,1] pixel space of the 224x224 image. eps in [0,1] units.
     Keeps the first successful iterate per sample (else the last), then rounds
     to the 8-bit grid (stays within eps when eps is a multiple of 1/255).
+    grid_verify=True (default since 31 Oct 2026): an iterate counts as a success only if
+    its 8-bit rounded version also succeeds (checked with the 'floor' forward that matches
+    the official pipeline); otherwise the sample keeps being optimised. Without it, most
+    in-loop successes were undone by the final rounding (at_pgd, E2, 2/255: 133 in-loop
+    hits, 25 official), so earlier runs understate success. grid_verify=False reproduces
+    the runs made before this change.
     Returns x_adv (on the grid), first-success step (-1 = never), final loss."""
     alpha = alpha or 2.5 * eps / steps
     # the unperturbed image is always a candidate: an attacker would not perturb an
@@ -216,8 +222,16 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
         with torch.no_grad():
             ok = success(attack, decide(out['evidence'], thr_fused, K), y, K)
             new = ok & (hit < 0)
-            hit[new] = t
-            best[new] = delta.detach()[new]
+            if grid_verify and bool(new.any()):
+                ci = new.nonzero()[:, 0]
+                xr = torch.round((x0[ci] + delta.detach()[ci]) * 255.0) / 255.0
+                okr = success(attack, decide(forward(det, xr, 'floor')['evidence'], thr_fused, K), y[ci], K)
+                ci = ci[okr]
+                hit[ci] = t
+                best[ci] = xr[okr] - x0[ci]
+            else:
+                hit[new] = t
+                best[new] = delta.detach()[new]
         if t == steps or bool((hit >= 0).all()):
             break
         g, = torch.autograd.grad(loss.sum(), delta)
