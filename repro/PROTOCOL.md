@@ -24,3 +24,4 @@ Rules every reported result follows. Changes to this file are dated and explaine
 ## Changes
 - 31 Oct 2026: created. Same day: C3 evaluated on the 50-step attacks -> failed; those attacks were then found to undercount (F14), so C3 is re-evaluated after the grid-verified re-runs.
 - 1 Nov 2026: grid_verify alone failed the strong-attack check (200 steps < 50 steps); second cause found and fixed (round_ste, F14). An attack version is accepted only after passing the same three pre-written rules on at_pgd E2.
+- 4 Nov 2026: round_ste passed rules 2 and 3 (E2 at_pgd 88.7/92.7% at 2/255 for 50/200 steps vs 16.7% before) but rule 1 failed (up to 7/150 fp32-harness successes not official); in-loop verification switched to the official pipeline. Rule 1 for the next pilot: LOST_AT_ROUNDING <= 1 per cell (only fp16 batch-composition nondeterminism can remain).

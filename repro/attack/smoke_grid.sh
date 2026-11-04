@@ -10,7 +10,7 @@ RUN=${1:?usage: smoke_grid.sh <AT run folder with at_last.pth and training.log>}
 S=~/DLED/runs/20261026-001437_paper_margin/samples.csv
 OUT=~/DLED/runs/smoke_grid_$(date +%Y%m%d-%H%M%S)
 COMMON=(--ckpt "$RUN/at_last.pth" --log "$RUN/training.log" --samples_csv "$S" --n_per_class 2
-        --attacks E2 --eps 2 --steps 10 --device cpu --threads 2 --batch 6 --keep_examples 0)
+        --attacks E2 --eps 2 --steps 10 --restarts 2 --device cpu --threads 2 --batch 6 --keep_examples 0)
 python repro/attack/run_attack.py "${COMMON[@]}" --no_grid_verify --no_round_ste --out "$OUT/old" > "$OUT.old.log" 2>&1 \
   || { mkdir -p "$OUT"; tail -20 "$OUT.old.log"; exit 1; }
 python repro/attack/run_attack.py "${COMMON[@]}" --out "$OUT/grid" > "$OUT.grid.log" 2>&1 \

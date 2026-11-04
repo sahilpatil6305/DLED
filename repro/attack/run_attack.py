@@ -42,6 +42,8 @@ ap.add_argument('--eps', nargs='+', type=float, default=[1, 2, 4, 8], help='in 1
 ap.add_argument('--steps', type=int, default=50)
 ap.add_argument('--restarts', type=int, default=1, help='random restarts for samples that still fail')
 ap.add_argument('--no_random_start', action='store_true')
+ap.add_argument('--verify', default='official', choices=['official', 'harness'],
+                help='grid_verify check: official pipeline on 8-bit PNGs (default since 4 Nov 2026) or the fp32 attack copy')
 ap.add_argument('--no_round_ste', action='store_true',
                 help='runs of 31 Oct 2026: loss on the continuous iterate instead of the rounded 8-bit image')
 ap.add_argument('--no_grid_verify', action='store_true',
@@ -181,6 +183,23 @@ def official_decide(img_paths):
     return pred['prob']['fused'].cpu()
 
 
+_vcount = [0]
+
+
+def make_verify(attack):
+    """grid_verify via the official pipeline: save each candidate as an 8-bit PNG, decide with
+    official_decide, return success (bool, on CPU)."""
+    def verify(xr, yv):
+        paths = []
+        for j in range(xr.shape[0]):
+            _vcount[0] += 1
+            p = os.path.join(tmp, f'v{_vcount[0] % 64}_{j}.png')
+            ft.save_png(xr[j], p)
+            paths.append(p)
+        return da.success(attack, official_decide(paths), yv.cpu(), K)
+    return verify
+
+
 def batches(items, n):
     for i in range(0, len(items), n):
         yield items[i:i + n]
@@ -222,20 +241,25 @@ for attack in args.attacks:
             y = torch.tensor([samples[i][1] for i in b], device=dev)
             x_adv, hit, loss = da.pgd(det_atk, x0, y, attack, thr_f, K, eps, args.steps,
                                       random_start=not args.no_random_start,
-                                      quantize=args.quantize, kappa=args.kappa, generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify, round_ste=not args.no_round_ste)
+                                      quantize=args.quantize, kappa=args.kappa, generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify, round_ste=not args.no_round_ste,
+                                      verify=make_verify(attack) if args.verify == 'official' else None)
             with torch.no_grad():
                 d_h = da.decide(da.forward(det_atk, x_adv, 'floor')['evidence'], thr_f, K)
             # random restarts: re-attack only the samples that still fail (new random start each time)
             for r in range(1, args.restarts):
-                fail = ~da.success(attack, d_h, y, K)
+                # with --verify official, restart the samples the OFFICIAL pipeline still gets right
+                fail = (~make_verify(attack)(x_adv, y).to(dev)) if args.verify == 'official' \
+                    else ~da.success(attack, d_h, y, K)
                 if not bool(fail.any()):
                     break
                 xa, hr, lr_ = da.pgd(det_atk, x0[fail], y[fail], attack, thr_f, K, eps, args.steps,
                                      random_start=True, quantize=args.quantize, kappa=args.kappa,
-                                     generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify, round_ste=not args.no_round_ste)
+                                     generator=gen, loss_type=args.loss, grid_verify=not args.no_grid_verify, round_ste=not args.no_round_ste,
+                                      verify=make_verify(attack) if args.verify == 'official' else None)
                 with torch.no_grad():
                     dr = da.decide(da.forward(det_atk, xa, 'floor')['evidence'], thr_f, K)
-                won = da.success(attack, dr, y[fail], K)
+                won = make_verify(attack)(xa, y[fail]).to(dev) if args.verify == 'official' \
+                    else da.success(attack, dr, y[fail], K)
                 fi = fail.nonzero()[:, 0]
                 x_adv[fi[won]] = xa[won]; d_h[fi[won]] = dr[won]
                 hit[fi[won]] = hr[won] + r * (args.steps + 1); loss[fi] = lr_

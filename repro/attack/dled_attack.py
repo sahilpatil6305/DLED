@@ -188,7 +188,7 @@ def attack_loss(attack, evidence, y, thr_fused, K, kappa=0.05, loss='margin'):
 
 # ---------------------------------------------------------------- PGD
 def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_start=True,
-        quantize='ste', kappa=0.05, generator=None, loss_type='margin', grid_verify=True, round_ste=True):
+        quantize='ste', kappa=0.05, generator=None, loss_type='margin', grid_verify=True, round_ste=True, verify=None):
     """L_inf PGD in [0,1] pixel space of the 224x224 image. eps in [0,1] units.
     Keeps the first successful iterate per sample (else the last), then rounds
     to the 8-bit grid (stays within eps when eps is a multiple of 1/255).
@@ -204,6 +204,9 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
     fails, the gradient vanishes and the sample stalls (at_pgd, E2: 95/117 failures at 50
     steps and 98/126 at 200 steps had final loss 0), so more steps gave LOWER success.
     round_ste=False reproduces the runs of 31 Oct 2026.
+    verify: optional callable (x_rounded, y) -> bool success tensor used by grid_verify instead
+    of the fp32 attack copy. run_attack passes the official pipeline (8-bit PNG -> official
+    loader -> official fp16 model_inference), so an accepted iterate is an official success.
     Returns x_adv (on the grid), first-success step (-1 = never), final loss."""
     alpha = alpha or 2.5 * eps / steps
     # the unperturbed image is always a candidate: an attacker would not perturb an
@@ -234,7 +237,10 @@ def pgd(det, x0, y, attack, thr_fused, K, eps, steps=50, alpha=None, random_star
             if grid_verify and bool(new.any()):
                 ci = new.nonzero()[:, 0]
                 xr = torch.round((x0[ci] + delta.detach()[ci]) * 255.0) / 255.0
-                okr = success(attack, decide(forward(det, xr, 'floor')['evidence'], thr_fused, K), y[ci], K)
+                if verify is not None:
+                    okr = verify(xr, y[ci]).to(ci.device)
+                else:
+                    okr = success(attack, decide(forward(det, xr, 'floor')['evidence'], thr_fused, K), y[ci], K)
                 ci = ci[okr]
                 hit[ci] = t
                 best[ci] = xr[okr] - x0[ci]
