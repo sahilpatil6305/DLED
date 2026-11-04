@@ -42,6 +42,9 @@ ap.add_argument('--eps', nargs='+', type=float, default=[1, 2, 4, 8], help='in 1
 ap.add_argument('--steps', type=int, default=50)
 ap.add_argument('--restarts', type=int, default=1, help='random restarts for samples that still fail')
 ap.add_argument('--no_random_start', action='store_true')
+ap.add_argument('--official_batch', type=int, default=1,
+                help='images per official model_inference call (default 1 since 4 Nov 2026: fp16 decisions of '
+                     'borderline images depended on which images shared the batch, FINDINGS F14)')
 ap.add_argument('--verify', default='official', choices=['official', 'harness'],
                 help='grid_verify check: official pipeline on 8-bit PNGs (default since 4 Nov 2026) or the fp32 attack copy')
 ap.add_argument('--no_round_ste', action='store_true',
@@ -171,16 +174,21 @@ log('official precision:', det_off.model.spatial_image_encoder.conv1.weight.dtyp
 
 
 def official_decide(img_paths):
-    """Official loader tensors -> official model_inference -> fused decision."""
-    sp, fr = [], []
-    for p in img_paths:
-        img, freq, _ = ds.load_rgb(p)
-        sp.append(ds.normalize(ds.to_tensor(np.array(img))))
-        fr.append(ds.normalize(ds.to_tensor(np.array(freq))))
-    dd = {'image': torch.stack(sp).to(dev), 'freq': torch.stack(fr).to(dev)}
-    with torch.no_grad():
-        pred = det_off.model_inference(dd, thr)
-    return pred['prob']['fused'].cpu()
+    """Official loader tensors -> official model_inference -> fused decision.
+    Scored in chunks of --official_batch images (default 1), so a decision never depends on
+    which other images share the batch (fp16 kernels differ by batch shape, FINDINGS F14)."""
+    out = []
+    for k in range(0, len(img_paths), args.official_batch):
+        sp, fr = [], []
+        for p in img_paths[k:k + args.official_batch]:
+            img, freq, _ = ds.load_rgb(p)
+            sp.append(ds.normalize(ds.to_tensor(np.array(img))))
+            fr.append(ds.normalize(ds.to_tensor(np.array(freq))))
+        dd = {'image': torch.stack(sp).to(dev), 'freq': torch.stack(fr).to(dev)}
+        with torch.no_grad():
+            pred = det_off.model_inference(dd, thr)
+        out.append(pred['prob']['fused'].reshape(-1).cpu())
+    return torch.cat(out)
 
 
 _vcount = [0]
@@ -236,6 +244,7 @@ for attack in args.attacks:
         eps = eps_px / 255.0
         t0 = time.time()
         n_ok_h = n_ok_off = n_clean_ok = n_ok_rn = 0
+        n_repeat_mismatch = n_batch_dep = 0
         for b in batches(idx, args.batch):
             x0 = torch.stack([ft.load_resized(samples[i][0]) for i in b]).to(dev)
             y = torch.tensor([samples[i][1] for i in b], device=dev)
@@ -270,6 +279,9 @@ for attack in args.attacks:
                 ft.save_png(x_adv[j], pp)
                 pngs.append(pp)
             d_off = official_decide(pngs)
+            n_repeat_mismatch += int((official_decide(pngs[::-1]).flip(0) != d_off).sum())   # determinism check
+            _ob = args.official_batch; args.official_batch = len(pngs)          # same images, one batch
+            n_batch_dep += int((official_decide(pngs) != d_off).sum()); args.official_batch = _ob
             ok_off = da.success(attack, d_off, y.cpu(), K)
             ok_clean = da.success(attack, torch.tensor([clean[i] for i in b]), y.cpu(), K)
             # random-noise baseline: uniform +-eps, 8-bit, official pipeline
@@ -295,11 +307,11 @@ for attack in args.attacks:
         n = len(idx)
         res = {'n': n, 'clean_rate': n_clean_ok / max(n, 1), 'noise_rate': n_ok_rn / max(n, 1),
                'harness_rate': n_ok_h / max(n, 1),
-               'official_rate': n_ok_off / max(n, 1), 'seconds': round(time.time() - t0, 1)}
+               'official_rate': n_ok_off / max(n, 1), 'official_repeat_mismatch': n_repeat_mismatch, 'official_batch_dependence': n_batch_dep, 'seconds': round(time.time() - t0, 1)}
         summary['results'][f'{attack}@{eps_px:g}'] = res
         log(f'{attack:4s} eps={eps_px:g}/255  n={n:4d}  success clean={res["clean_rate"]:.3f}  '
             f'noise={res["noise_rate"]:.3f}  harness={res["harness_rate"]:.3f}  '
-            f'OFFICIAL={res["official_rate"]:.3f}  ({res["seconds"]}s)')
+            f'OFFICIAL={res["official_rate"]:.3f}  repeat_mismatch={n_repeat_mismatch} batch_dep={n_batch_dep}  ({res["seconds"]}s)')
 
 with open(os.path.join(args.out, 'per_sample.csv'), 'w', newline='') as f:
     w = csv.writer(f)
@@ -315,6 +327,8 @@ for attack in args.attacks:
     checks[f'{attack}_beats_clean'] = rates[-1] >= summary['results'][f'{attack}@{max(args.eps):g}']['clean_rate']
 mism = sum(1 for r in rows if r[6] != r[7])
 checks['harness_vs_official_mismatch_rate'] = mism / max(len(rows), 1)
+checks['official_repeat_mismatch_total'] = sum(v.get('official_repeat_mismatch', 0) for v in summary['results'].values())
+checks['official_batch_dependence_total'] = sum(v.get('official_batch_dependence', 0) for v in summary['results'].values())
 summary['checks'] = checks
 summary['minutes'] = round((time.time() - t_start) / 60, 1)
 with open(os.path.join(args.out, 'summary.json'), 'w') as f:
