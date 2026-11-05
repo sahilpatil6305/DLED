@@ -18,7 +18,10 @@ p = argparse.ArgumentParser()
 p.add_argument('--runs', default='~/DLED/runs')
 p.add_argument('--models', nargs='+', default=['ft_clean', 'at_pgd', 'at_evat', 'at_reject'])
 p.add_argument('--ref', default='at_reject', help='model compared against all others with McNemar')
-p.add_argument('--baseline', default='paper_margin')
+p.add_argument('--baseline', default='paper_margin', help="margin-only reference run restricted to the same images; 'none' to skip")
+p.add_argument('--suffix_margin', default='attack', help="run-name suffix of the margin runs (final runs: final_margin)")
+p.add_argument('--suffix_ce', default='attack_ce', help="run-name suffix of the CE runs (final runs: final_ce)")
+p.add_argument('--exclude_methods', nargs='*', default=[], help='drop images of these generators (e.g. simswap inswap, FINDINGS F15)')
 p.add_argument('--n_per_class', type=int, default=100)
 p.add_argument('--out', default=None)
 args = p.parse_args()
@@ -64,13 +67,13 @@ def mcnemar(b, c):
 # ---------------------------------------------------------------- load runs
 data, src = {}, {}
 for m in args.models:
-    for loss, suf in (('margin', 'attack'), ('ce', 'attack_ce')):
+    for loss, suf in (('margin', args.suffix_margin), ('ce', args.suffix_ce)):
         run = latest(f'*_{m}_{suf}')
         if run is None:
             sys.exit(f'missing run *_{m}_{suf} in {R}')
         data[(m, loss)] = load(run); src[(m, loss)] = os.path.basename(run)
 
-base_run = latest(f'*_{args.baseline}')
+base_run = latest(f'*_{args.baseline}') if args.baseline != 'none' else None
 if base_run:
     # paper_margin: per label 300 images, samples.csv order, idx = label*300 + rank. The AT runs took the
     # first n_per_class of each label: AT idx = label*n + rank. Build the map and verify the labels match.
@@ -83,7 +86,7 @@ if base_run:
         assert lab_i == lab[0], 'paper_margin idx layout is not label-major'
         if rank < args.n_per_class:
             bmap[(a, e, lab_i * args.n_per_class + rank)] = (s, lab)
-    data[('baseline', 'margin')] = bmap; src[('baseline', 'margin')] = os.path.basename(base_run)
+    data[('ref_base', 'margin')] = bmap; src[('ref_base', 'margin')] = os.path.basename(base_run)
 
 say('sources:')
 for k, v in src.items():
@@ -93,6 +96,11 @@ keys = sorted({k for k in data[(args.models[0], 'margin')]})
 attacks = sorted({k[0] for k in keys}, key=lambda a: ['E1', 'E2', 'E3', 'E3R', 'E4'].index(a)
                  if a in ['E1', 'E2', 'E3', 'E3R', 'E4'] else 99)
 epss = sorted({k[1] for k in keys})
+if args.exclude_methods:
+    first = data[(args.models[0], 'margin')]
+    n0 = len(keys)
+    keys = [k for k in keys if first[k][1][1] not in set(args.exclude_methods)]
+    say(f'excluded generators {args.exclude_methods}: {n0 - len(keys)} of {n0} (attack,eps,image) cells dropped')
 
 # sanity: same images (labels per idx identical across all runs)
 bad = 0
@@ -108,7 +116,7 @@ def worst(m, k):
     return max(data[(m, 'margin')][k][0], data[(m, 'ce')][k][0])
 
 
-rows_models = (['baseline'] if ('baseline', 'margin') in data else []) + args.models
+rows_models = (['ref_base'] if ('ref_base', 'margin') in data else []) + args.models
 for a in attacks:
     say(); say(f'=== {a}   OFFICIAL success %  (margin / CE / WORST [95% CI])')
     say(f'{"model":10s} ' + ' '.join(f'{"eps "+format(e, "g"):>27s}' for e in epss))
@@ -117,7 +125,7 @@ for a in attacks:
         for e in epss:
             ks = [k for k in keys if k[0] == a and k[1] == e]
             n = len(ks)
-            if m == 'baseline':
+            if m == 'ref_base':
                 km = sum(data[(m, 'margin')][k][0] for k in ks if k in data[(m, 'margin')])
                 cells.append(f'{100*km/n:5.1f} /   -  /   -          ')
             else:
