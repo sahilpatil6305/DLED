@@ -6,8 +6,8 @@ space z = log(1 + fused evidence) with gate l_c = -log tau_c (accept as c <=> c 
 z_c >= l_c, FINDINGS F12):
   m_rej = z_c - l_c                 how far the top evidence sits above its rejection gate
   m_cls = z_c - max_{j != c} z_j    how far the top class sits above the runner-up
-and the first-order L-inf distance to each boundary, d = m / ||grad_x m||_1, in 1/255 units
-(the L-inf budget a linearised attacker needs to cross it). Hypothesis H1: d_rej < d_cls for most
+and, as a diagnostic only, the first-order L-inf distance d = m / ||grad_x m||_1 (not valid for DLED:
+see the note in the summary code). Hypothesis H1: m_rej < m_cls for most
 correctly accepted known images, which predicts E2 (known -> rejected) succeeding at smaller eps
 than E1 (known -> wrong known class). With --attack_run, the minimal eps at which E1 / E2 actually
 succeeded (OFFICIAL, per image) is merged in, so the prediction can be checked per image.
@@ -124,17 +124,25 @@ def q(v):
     return f'median {statistics.median(v):.3f}  [q25 {v[len(v) // 4]:.3f}, q75 {v[(3 * len(v)) // 4]:.3f}]' if v else 'n/a'
 
 
-for name in ('m_rej', 'm_cls', 'd_rej_255', 'd_cls_255'):
-    lines.append(f'{name:10s} {q([r[name] for r in ok])}')
-closer = sum(1 for r in ok if r['d_rej_255'] < r['d_cls_255'])
-lines.append(f'H1: rejection boundary closer than class boundary (d_rej < d_cls): {closer}/{len(ok)}'
+for name in ('m_rej', 'm_cls'):
+    lines.append(f'{name:10s} (z units) {q([r[name] for r in ok])}')
+closer = sum(1 for r in ok if r['m_rej'] < r['m_cls'])
+lines.append(f'H1 (decision space): rejection margin smaller than class margin (m_rej < m_cls): {closer}/{len(ok)}'
              f' = {100 * closer / max(len(ok), 1):.1f}%')
 for lab in args.labels:
     sub = [r for r in ok if r['label'] == lab]
     if sub:
-        cl = sum(1 for r in sub if r['d_rej_255'] < r['d_cls_255'])
-        lines.append(f'  label {lab}: {cl}/{len(sub)}  d_rej {q([r["d_rej_255"] for r in sub])}'
-                     f'  d_cls {q([r["d_cls_255"] for r in sub])}')
+        cl = sum(1 for r in sub if r['m_rej'] < r['m_cls'])
+        lines.append(f'  label {lab}: {cl}/{len(sub)}  m_rej {q([r["m_rej"] for r in sub])}'
+                     f'  m_cls {q([r["m_cls"] for r in sub])}')
+# first-order pixel distances: diagnostic only. The frequency branch is a log-FFT followed by a uint8
+# floor; its straight-through gradient measures the pre-floor log-spectrum, which is huge and does not
+# reflect the piecewise-constant map the model really sees (5 Nov smoke test: d ~ 0.001/255 while real
+# attacks need >= 1/255). So pixel-space claims use the attacks' measured min eps, not d.
+for name in ('d_rej_255', 'd_cls_255'):
+    v = sorted(r[name] for r in ok)
+    if v:
+        lines.append(f'{name:10s} (linearised, NOT a valid distance here) median {statistics.median(v):.2e}')
 if args.attack_run:
     both = [r for r in ok if r['min_eps_E1'] != '' and r['min_eps_E2'] != '']
     e2_first = sum(1 for r in both if r['min_eps_E2'] < r['min_eps_E1'])
@@ -142,8 +150,8 @@ if args.attack_run:
     lines.append(f'attacks (OFFICIAL, min eps over {len(args.attack_run)} run(s)): both E1 and E2 succeeded for '
                  f'{len(both)}; E2 at smaller eps {e2_first}, same eps {tie}, E1 smaller {len(both) - e2_first - tie}')
     pred = [r for r in both if r['min_eps_E2'] != r['min_eps_E1']]
-    agree = sum(1 for r in pred if (r['d_rej_255'] < r['d_cls_255']) == (r['min_eps_E2'] < r['min_eps_E1']))
-    lines.append(f'per-image agreement of the d_rej<d_cls prediction with which attack succeeded first: '
+    agree = sum(1 for r in pred if (r['m_rej'] < r['m_cls']) == (r['min_eps_E2'] < r['min_eps_E1']))
+    lines.append(f'per-image agreement of the m_rej<m_cls prediction with which attack succeeded first: '
                  f'{agree}/{len(pred)}')
 open(os.path.join(args.out, 'margins_summary.txt'), 'w').write('\n'.join(lines) + '\n')
 print('\n'.join(lines))
